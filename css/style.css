@@ -1,0 +1,37 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", sans-serif;
+  background: #f4f6f9;
+  color: #222;
+}
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 24px; background: #2f5597; color: #fff;
+}
+.topbar h1 { margin: 0; font-size: 20px; }
+.version { font-size: 12px; opacity: .8; }
+.container { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.lead { color: #555; }
+.card {
+  background: #fff; border-radius: 8px; padding: 16px 20px; margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+.card h2 { font-size: 17px; margin-top: 0; }
+.dropzone {
+  display: block; border: 2px dashed #9bc2e6; border-radius: 8px; padding: 36px 16px;
+  text-align: center; color: #2f5597; cursor: pointer; background: #f7fbff;
+}
+.dropzone.drag { background: #e3f0fb; }
+.file-list { list-style: none; padding: 0; margin: 12px 0 0; }
+.file-list li { padding: 6px 0; border-bottom: 1px solid #eee; font-size: 14px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; margin-right: 6px; background: #eee; }
+.badge.smartstore { background: #03c75a; color: #fff; }
+.badge.coupang { background: #e52528; color: #fff; }
+.error { color: #c00; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; white-space: nowrap; }
+th { background: #9bc2e6; }
+.btn { background: #2f5597; color: #fff; border: 0; padding: 10px 18px; border-radius: 6px; font-size: 15px; cursor: pointer; }
+.btn.secondary { background: #888; }
