@@ -123,6 +123,11 @@ test('품목 오분류 방지 — 지역명·흔한 채소명만으로는 분류
     assert.strictEqual(P.classify(t, cat), '', t);
   }
   assert.strictEqual(P.classify('구포 칼국수', cat), '칼국수');
+  // 산지+품목 조합 키워드
+  assert.strictEqual(P.classify('[청도] 미나리 1kg', cat), '청도 미나리');
+  assert.strictEqual(P.classify('기장 햇쪽파', cat), '기장 쪽파');
+  assert.strictEqual(P.classify('예산 옛날국수 3kg', cat), '예산국수');
+  assert.strictEqual(P.classify('구포 소면', cat), '구포국수');
   // 여러 품목에 걸리면 확인 필요
   assert.deepStrictEqual(P.classifyText('칼국수+수제비 세트', cat).matches.sort(), ['수제비', '칼국수']);
   // 상품명 우선, 옵션은 보조

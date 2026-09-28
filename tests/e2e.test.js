@@ -113,8 +113,8 @@ test('비밀번호 걸린 파일: 틀린 비번 → 재입력 → 열림, 같은
 
 test('잘못된 파일은 친절한 안내, 키보드로 파일 선택 가능', async () => {
   await withPage(async (page) => {
-    // 단계 버튼 3개 다음에 파일 선택 버튼
-    for (let i = 0; i < 4; i++) await page.keyboard.press('Tab');
+    // 데이터가 없을 때 단계 버튼은 Tab 순서에서 빠지므로 첫 Tab 이 파일 선택 버튼
+    await page.keyboard.press('Tab');
     const focused = await page.evaluate(() => document.activeElement.id);
     assert.strictEqual(focused, 'pickBtn');
     await upload(page, [{ name: 'photo.jpg', mimeType: 'image/jpeg', buffer: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]) }]);
@@ -184,7 +184,8 @@ test('표 방향키 이동 · Enter 로 편집 · 되돌리기', async () => {
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('ArrowDown');
     assert.strictEqual(await page.evaluate(() => document.activeElement.dataset.col), 'item');
-    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight'); // 품목
+    await page.keyboard.press('ArrowRight'); // 수량
     await page.keyboard.press('Enter');
     await page.keyboard.type('5');
     await page.keyboard.press('Enter');
@@ -192,5 +193,120 @@ test('표 방향키 이동 · Enter 로 편집 · 되돌리기', async () => {
     assert.ok(await page.locator('#previewTable tbody tr').nth(1).locator('td.edited').count());
     await page.locator('#previewTable tbody tr').nth(1).locator('.undo').click();
     assert.strictEqual(await page.evaluate(() => window.__po.state.rows[1].qty), 3);
+  });
+});
+
+const XLSXN = require('xlsx');
+const T = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const mkXlsx = (rows) => {
+  const wb = XLSXN.utils.book_new();
+  XLSXN.utils.book_append_sheet(wb, XLSXN.utils.aoa_to_sheet(rows), 'S');
+  return XLSXN.write(wb, { type: 'buffer', bookType: 'xlsx' });
+};
+
+test('품목 메뉴: 키보드로 바꾸고, 체크 안 된 품목이면 빠진다는 안내', async () => {
+  await withPage(async (page) => {
+    await page.click('#demoBtn');
+    await page.focus('#previewTable tbody td[tabindex="0"]');
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+    assert.strictEqual(await page.evaluate(() => document.activeElement.dataset.col), 'cat');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('.cat-menu');
+    // 맨 아래 '기타'(체크 안 됨)로 이동
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    const r = await page.evaluate(() => window.__po.state.rows[0]);
+    assert.strictEqual(r.categoryManual, '');
+    assert.strictEqual(r.included, false);
+    assert.match(await page.textContent('#toastText'), /빠집니다/);
+    assert.strictEqual(await page.evaluate(() => document.activeElement.dataset.col), 'cat');
+  });
+});
+
+test('편집 중 Tab 은 저장 후 옆 칸으로', async () => {
+  await withPage(async (page) => {
+    await page.click('#demoBtn');
+    await page.click('#previewTable tbody tr:first-child td[data-col="name"]');
+    await page.keyboard.type('님');
+    await page.keyboard.press('Tab');
+    assert.strictEqual(await page.evaluate(() => window.__po.state.rows[0].name), '김하늘님');
+    assert.strictEqual(await page.evaluate(() => document.activeElement.dataset.col), 'item');
+  });
+});
+
+test('직접 지정한 품목을 삭제하면 자동 분류로 돌아가고 되돌리기로 복구', async () => {
+  await withPage(async (page) => {
+    await page.click('#demoBtn');
+    // 들기름(기타) 주문을 칼국수로 직접 지정
+    await page.evaluate(() => { const r = window.__po.state.rows.find((x) => x.name === '한지우'); r.categoryManual = '칼국수'; });
+    await page.click('#manageBtn');
+    await page.click('#manageList li:has-text("칼국수") button');
+    const r = await page.evaluate(() => window.__po.state.rows.find((x) => x.name === '한지우'));
+    assert.strictEqual(r.categoryManual, null);
+    assert.strictEqual(r.category, '');
+    await page.click('#toastAction');
+    assert.strictEqual(await page.evaluate(() => window.__po.state.rows.find((x) => x.name === '한지우').category), '칼국수');
+  });
+});
+
+test('주문번호 없는 파일의 사본은 파일째 중복으로 빠지고, 다운로드 전 점검창이 뜬다', async () => {
+  const rows = [['수취인명', '상품명', '수량', '전화번호', '주소'], ['가', '칼국수', 1, '01011112222', '서울'], ['나', '수제비', 2, '01033334444', '부산']];
+  const buf = mkXlsx(rows);
+  const buf2 = mkXlsx(rows.concat([['다', '국산 들기름', 1, '01055556666', '대구']]));
+  await withPage(async (page) => {
+    await upload(page, [{ name: 'a.xlsx', mimeType: T, buffer: buf }, { name: 'a 사본.xlsx', mimeType: T, buffer: buf }]);
+    await page.waitForFunction(() => window.__po.state.files.length === 2 && !window.__po.state.busy);
+    assert.strictEqual(await included(page), 2);
+    await upload(page, [{ name: 'b.xlsx', mimeType: T, buffer: buf2 }]);
+    await page.waitForFunction(() => window.__po.state.files.length === 3 && !window.__po.state.busy);
+    // b 는 전부 같지는 않으므로 빼지 않고 경고만 → 가·나 가 한 번 더 (4건)
+    assert.strictEqual(await included(page), 4);
+    await page.click('#downloadBtn');
+    await page.waitForSelector('#confirmDialog[open]');
+    const text = await page.textContent('#confirmBody');
+    assert.match(text, /같은 내용이 또 있는 주문 2건/);
+    assert.match(text, /목록에 없는 상품 1건/);
+    await page.click('#confirmCancel');
+    // 취소하면 '확인 필요' 보기로
+    await page.waitForFunction(() => window.__po.state.view === 'check');
+  });
+});
+
+test('HTML 표로 된 .xls 와 UTF-16 텍스트도 읽음', async () => {
+  const html = '<html><body><table><tr><td>수취인명</td><td>상품명</td><td>수량</td><td>전화번호</td><td>주소</td></tr>' +
+    '<tr><td>가</td><td>칼국수</td><td>1</td><td>010-1111-2222</td><td>서울</td></tr></table></body></html>';
+  const tsv = '수취인명\t상품명\t수량\t전화번호\t주소\r\n나\t수제비\t2\t010-3333-4444\t부산\r\n';
+  const utf16 = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(tsv, 'utf16le')]);
+  await withPage(async (page) => {
+    await upload(page, [
+      { name: 'order.xls', mimeType: 'application/vnd.ms-excel', buffer: Buffer.from(html) },
+      { name: 'order.txt', mimeType: 'text/plain', buffer: utf16 },
+    ]);
+    await page.waitForFunction(() => window.__po.state.files.length === 2 && !window.__po.state.busy);
+    const files = await page.evaluate(() => window.__po.state.files.map((f) => f.error || f.count));
+    assert.deepStrictEqual(files, [1, 1]);
+  });
+});
+
+test('3,000건도 빠르게 (처음 200건만 그림)', async () => {
+  const H = ['상품주문번호', '수취인명', '상품명', '수량', '수취인연락처1', '통합배송지'];
+  const rows = [H];
+  for (let i = 0; i < 3000; i++) rows.push([String(2026092800000000 + i), '고객' + i, i % 2 ? '생칼국수 1kg' : '감자 수제비', 1, '010' + String(10000000 + i), '서울시 어딘가 ' + i]);
+  await withPage(async (page) => {
+    const t0 = Date.now();
+    await upload(page, [{ name: 'big.xlsx', mimeType: T, buffer: mkXlsx(rows) }]);
+    await page.waitForFunction(() => window.__po.state.files.length === 1 && !window.__po.state.busy, null, { timeout: 20000 });
+    const loadMs = Date.now() - t0;
+    assert.strictEqual(await included(page), 3000);
+    assert.strictEqual(await page.locator('#previewTable tbody tr[data-uid]').count(), 200);
+    const t1 = Date.now();
+    await page.click('#selectNoneBtn');
+    await page.click('#selectAllBtn');
+    const toggleMs = Date.now() - t1;
+    assert.ok(loadMs < 8000, 'load ' + loadMs);
+    assert.ok(toggleMs < 2500, 'toggle ' + toggleMs);
+    await page.click('.more-row button');
+    assert.strictEqual(await page.locator('#previewTable tbody tr[data-uid]').count(), 400);
   });
 });

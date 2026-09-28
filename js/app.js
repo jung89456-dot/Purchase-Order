@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v3';
+  var APP_VERSION = 'v4';
   var STORE_KEY = 'po.items.v1';
 
   var $ = function (id) { return document.getElementById(id); };
@@ -13,7 +13,9 @@
     catalog: [],    // [{name, keywords[]}]
     selected: {},   // 품목명 → 선택 여부
     otherSelected: false,
-    showExcluded: false,
+    view: 'included', // 표 보기: included(발주할 주문) / check(확인 필요) / excluded(빠진 주문)
+    limit: 200,       // 한 번에 그리는 행 수 (대용량 대비)
+    itemsOpen: false, // 모바일에서 품목 칩 펼침
     managing: false,
     busy: false,
     gen: 0,
@@ -68,8 +70,7 @@
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify({ catalog: state.catalog, selected: state.selected, otherSelected: state.otherSelected }));
     } catch (e) {
-      if (storageOk) toast('이 브라우저에서는 품목 설정을 저장할 수 없어, 다음에 열면 기본 품목으로 돌아갑니다.');
-      storageOk = false;
+      storageOk = false; // ② 에 계속 보이는 안내로 알린다 (토스트는 다른 알림에 덮일 수 있음)
     }
   }
 
@@ -88,9 +89,15 @@
   function isCfb(d) { return d[0] === 0xd0 && d[1] === 0xcf && d[2] === 0x11 && d[3] === 0xe0; }
 
   function decodeText(data) {
-    try { return new TextDecoder('utf-8', { fatal: true }).decode(data).replace(/^﻿/, ''); }
+    // 엑셀 '유니코드 텍스트' 저장본(UTF-16) → UTF-8 → CP949 순서로 시도
+    if (data[0] === 0xff && data[1] === 0xfe) return new TextDecoder('utf-16le').decode(data.subarray(2));
+    if (data[0] === 0xfe && data[1] === 0xff) return new TextDecoder('utf-16be').decode(data.subarray(2));
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(data).replace(/^\uFEFF/, ''); }
     catch (e) { return new TextDecoder('euc-kr').decode(data); }
   }
+
+  // 일부 쇼핑몰은 HTML 표를 .xls 이름으로 내려준다
+  function looksLikeHtml(text) { return /^\s*<(!doctype|html|table|meta|head|body)/i.test(text); }
 
   var MESSAGES = {
     NOT_EXCEL: '엑셀 파일(.xlsx, .xls, .csv)이 아닙니다. 쇼핑몰에서 받은 주문 엑셀을 올려 주세요.',
@@ -119,9 +126,11 @@
       if (enc.encrypted) return unlock(file, data).then(function (plain) { return XLSX.read(plain, READ_OPTS); });
       return Promise.resolve(XLSX.read(data, READ_OPTS));
     }
-    if (ext === 'csv' || ext === 'txt' || ext === 'tsv') {
+    if (['csv', 'txt', 'tsv', 'xls', 'htm', 'html'].indexOf(ext) !== -1) {
+      var text = decodeText(data);
+      if (ext === 'xls' && !looksLikeHtml(text)) return Promise.reject(friendly('UNREADABLE'));
       // raw: 긴 주문번호가 숫자로 바뀌며 자릿수가 깨지지 않도록 글자 그대로 읽는다
-      return Promise.resolve(XLSX.read(decodeText(data), { type: 'string', raw: true }));
+      return Promise.resolve(XLSX.read(text, { type: 'string', raw: true }));
     }
     return Promise.reject(friendly('NOT_EXCEL'));
   }
@@ -181,7 +190,12 @@
       if (gen !== state.gen) return;
       setBusy(null);
       render();
-      if (state.rows.length) scrollToCard('step-preview');
+      if (state.rows.length) {
+        scrollToCard('step-preview');
+        // 포커스도 결과 쪽으로 옮겨, 다음 Tab 이 화면 밖으로 튀지 않게
+        var a = document.activeElement;
+        if (!a || a === document.body || a.id === 'pickBtn') $('h-preview').focus({ preventScroll: true });
+      }
     });
     return queue;
   }
@@ -245,41 +259,60 @@
     r.issues = issues;
   }
 
+  function catalogHas(name) {
+    return state.catalog.some(function (c) { return c.name === name; });
+  }
+
   function classifyRow(r) {
-    if (r.categoryManual != null) return { name: r.categoryManual, matches: [] };
+    // 직접 지정한 품목이 목록에서 삭제되었으면 자동 분류로 돌아간다
+    if (r.categoryManual != null && (r.categoryManual === '' || catalogHas(r.categoryManual))) {
+      return { name: r.categoryManual, matches: [] };
+    }
     var edited = r.item !== r.orig.item;
     return edited ? P.classifyText(r.item, state.catalog) : P.classifyProduct(r.product, r.option, state.catalog);
   }
 
   function compute() {
-    // 1) 어느 파일에서든 취소·반품된 주문번호는 모두 제외 (오전 파일 결제완료 + 오후 파일 취소요청)
-    var canceled = {};
+    // 1) 어느 파일에서든 취소·반품·발송된 주문번호는 모두 제외 (오전 파일 결제완료 + 오후 파일 취소요청)
+    var stopped = {};
     state.rows.forEach(function (r) {
-      if (r.excluded && r.keyKind !== 'c') canceled[r.key] = r.excluded;
+      if (r.excluded && r.keyKind !== 'c' && !stopped[r.key]) stopped[r.key] = r.excluded;
+    });
+    // 2) 주문번호가 없는 파일: 먼저 올린 파일과 내용이 전부 같으면 파일째 중복
+    var contentSeen = {}, fileDupCount = {}, fileRowCount = {};
+    state.rows.forEach(function (r) {
+      fileRowCount[r.fileId] = (fileRowCount[r.fileId] || 0) + 1;
+      if (r.keyKind !== 'c') return;
+      if (contentSeen[r.key] != null && contentSeen[r.key] !== r.fileId) fileDupCount[r.fileId] = (fileDupCount[r.fileId] || 0) + 1;
+      else if (contentSeen[r.key] == null) contentSeen[r.key] = r.fileId;
     });
     var firstFile = {};
     state.rows.forEach(function (r) {
       var reasons = [];
       var warns = [];
-      if (r.excluded) {
-        reasons.push(P.isShippedStatus(r.excluded) ? '이미 발송 (' + r.excluded + ')' : '취소·반품 (' + r.excluded + ')');
-      } else if (canceled[r.key]) {
-        reasons.push('다른 파일에서 ' + canceled[r.key]);
+      var status = r.excluded || stopped[r.key];
+      if (status) {
+        var label = P.isShippedStatus(status) ? '이미 발송' : '취소·반품';
+        reasons.push(label + ' (' + (r.excluded ? '' : '같은 주문: ') + status + ')');
       }
       if (firstFile[r.key] == null) {
         firstFile[r.key] = r.fileId;
       } else if (r.keyKind !== 'c' && firstFile[r.key] !== r.fileId) {
-        // 다른 파일에 같은 주문번호 → 같은 주문을 다시 받은 것
         reasons.push('중복 주문 (먼저 올린 파일에 있음)');
+      } else if (r.keyKind === 'c' && firstFile[r.key] !== r.fileId && fileDupCount[r.fileId] === fileRowCount[r.fileId]) {
+        reasons.push('중복 파일 (먼저 올린 파일과 내용이 같음)');
       } else {
         // 같은 파일 안이거나 주문번호가 없으면 자동으로 빼지 않고 확인만 요청
         warns.push('dup-suspect');
       }
       var cls = classifyRow(r);
       r.category = cls.name;
+      r.matches = cls.matches;
       if (cls.matches.length > 1) warns.push('ambiguous');
-      var catOn = r.category ? !!state.selected[r.category] : state.otherSelected;
-      if (!catOn) reasons.push('품목 미선택' + (r.category ? ' (' + r.category + ')' : ' (기타)'));
+      // 세트 상품처럼 여러 품목에 걸리면, 그중 하나라도 체크되어 있으면 포함
+      var cats = cls.matches.length > 1 ? cls.matches : [r.category];
+      var catOn = cats.some(function (c) { return c ? !!state.selected[c] : state.otherSelected; });
+      if (!catOn) reasons.push('품목 미선택 (' + (r.category || '기타') + ')');
       r.reasons = reasons;
       r.warns = warns;
       r.included = r.override != null ? r.override : reasons.length === 0;
@@ -288,6 +321,15 @@
 
   function blockingIssues(r) {
     return r.issues.filter(function (i) { return P.BLOCKING[i]; });
+  }
+
+  function needsCheck(r) {
+    return r.included && (blockingIssues(r).length > 0 || r.issues.length > 0 || r.warns.length > 0);
+  }
+
+  function isEdited(r) {
+    if (r.categoryManual != null) return true;
+    return EDIT_FIELDS.some(function (f) { return fmt(r[f]) !== fmt(r.orig[f]); });
   }
 
   /* ---------------- 렌더링 ---------------- */
@@ -302,6 +344,8 @@
     return e;
   }
 
+  function fmt(v) { return v == null ? '' : String(v); }
+
   function render() {
     compute();
     renderUpload();
@@ -309,6 +353,13 @@
     renderChips();
     renderManage();
     renderTable();
+    renderStats();
+  }
+
+  // 칩·파일 목록·요약만 갱신 (표는 그대로 두어 편집 중인 칸과 포커스를 지킨다)
+  function renderLight() {
+    renderFiles();
+    renderChips();
     renderStats();
   }
 
@@ -364,17 +415,34 @@
     return lab;
   }
 
+  function toggleItem(apply) {
+    apply();
+    saveCatalog();
+    compute();
+    renderLight();
+    renderTable();
+  }
+
   function renderChips() {
     var box = $('itemChips');
     box.innerHTML = '';
     state.catalog.forEach(function (c) {
       box.appendChild(chip(c.name, !!state.selected[c.name],
         candidateCount(function (r) { return r.category === c.name; }),
-        function (on) { state.selected[c.name] = on; saveCatalog(); render(); }));
+        function (on) { toggleItem(function () { state.selected[c.name] = on; }); }));
     });
     box.appendChild(chip('기타 (목록에 없는 상품)', state.otherSelected,
       candidateCount(function (r) { return !r.category; }),
-      function (on) { state.otherSelected = on; saveCatalog(); render(); }, 'other'));
+      function (on) { toggleItem(function () { state.otherSelected = on; }); }, 'other'));
+
+    // 모바일에서 주문을 올린 뒤에는 한 줄 요약으로 접는다
+    var on = state.catalog.filter(function (c) { return state.selected[c.name]; }).length;
+    $('itemsSummaryText').textContent = '품목 ' + state.catalog.length + '개 중 ' + on + '개 체크' + (state.otherSelected ? ' · 기타 포함' : ' · 기타 제외');
+    $('step-items').classList.toggle('collapsible', state.rows.length > 0);
+    $('step-items').classList.toggle('open', state.itemsOpen);
+    $('itemsToggle').setAttribute('aria-expanded', String(state.itemsOpen));
+    $('itemsToggle').textContent = state.itemsOpen ? '접기' : '바꾸기';
+    $('storageWarn').hidden = storageOk;
   }
 
   function renderManage() {
@@ -388,14 +456,14 @@
       li.appendChild(el('span', { className: 'manage-name' }, c.name));
       var id = 'kw-' + idx;
       li.appendChild(el('label', { for: id, className: 'sr-only' }, c.name + ' 키워드'));
-      var input = el('input', { type: 'text', id: id, className: 'kw-input', placeholder: '키워드 (쉼표로 구분)' });
+      var input = el('input', { type: 'text', id: id, className: 'kw-input', placeholder: '추가 키워드 (쉼표로 구분)' });
       input.value = c.keywords.join(', ');
       input.addEventListener('change', function () {
-        c.keywords = input.value.split(',').map(function (k) { return k.trim(); }).filter(Boolean);
-        saveCatalog(); render();
+        c.keywords = input.value.split(',').map(function (k) { return k.trim(); }).filter(function (k) { return k.replace(/[+\s]/g, ''); });
+        saveCatalog(); compute(); renderLight(); renderTable();
       });
       li.appendChild(input);
-      var del = el('button', { type: 'button', className: 'btn secondary danger small-btn', 'aria-label': c.name + ' 품목 삭제' }, '삭제');
+      var del = el('button', { type: 'button', className: 'btn secondary danger small-btn', 'data-idx': idx, 'aria-label': c.name + ' 품목 삭제' }, '삭제');
       del.addEventListener('click', function () { deleteItem(idx); });
       li.appendChild(del);
       list.appendChild(li);
@@ -405,45 +473,90 @@
   function deleteItem(idx) {
     var c = state.catalog[idx];
     var wasSelected = state.selected[c.name];
-    var affected = state.rows.filter(function (r) { return r.category === c.name; }).length;
+    var affected = state.rows.filter(function (r) { return r.category === c.name || r.categoryManual === c.name; });
+    var manual = state.rows.filter(function (r) { return r.categoryManual === c.name; });
+    manual.forEach(function (r) { r.categoryManual = null; });
     state.catalog.splice(idx, 1);
     delete state.selected[c.name];
     saveCatalog(); render();
     var msg = '‘' + c.name + '’ 품목을 삭제했습니다.';
-    if (affected) msg += ' 이 품목 주문 ' + affected + '건은 이제 ‘기타’로 분류됩니다.';
+    if (affected.length) msg += ' 이 품목이던 주문 ' + affected.length + '건은 다시 자동 분류됩니다(대부분 ‘기타’).';
     toast(msg, '되돌리기', function () {
       state.catalog.splice(idx, 0, c);
       state.selected[c.name] = wasSelected;
+      manual.forEach(function (r) { r.categoryManual = c.name; });
       saveCatalog(); render();
       toast('‘' + c.name + '’ 품목을 되살렸습니다.');
     });
+    // 포커스를 다음 삭제 버튼(없으면 되돌리기)으로
+    var next = document.querySelector('#manageList button[data-idx="' + Math.min(idx, state.catalog.length - 1) + '"]');
+    (next || $('toastAction')).focus();
   }
 
-  var COLS = ['check', 'cat', 'name', 'item', 'qty', 'phone', 'address', 'memo', 'act'];
-  var COL_LABEL = { cat: '품목', name: '수취자명', item: '구입품목', qty: '수량', phone: '전화번호', address: '주소', memo: '배송메세지' };
+  /* ---------------- 표 ---------------- */
+
+  var PAGE = 200;
+  var COLS = ['check', 'name', 'item', 'cat', 'qty', 'phone', 'address', 'memo', 'act'];
+  var COL_LABEL = { cat: '품목', name: '수취자명', item: '구입품목', qty: '수량', phone: '전화', address: '주소', memo: '메세지' };
   var ISSUE_FIELD = { name: 'name', item: 'item', phone: 'phone', 'phone-format': 'phone', address: 'address', qty: 'qty', 'qty-default': 'qty' };
 
+  var VIEWS = {
+    included: { label: '발주할 주문', test: function (r) { return r.included; } },
+    check: { label: '확인 필요', test: needsCheck },
+    excluded: { label: '빠진 주문', test: function (r) { return !r.included; } }
+  };
+
   function visibleRows() {
-    return state.rows.filter(function (r) { return r.included || state.showExcluded || r.override != null; });
+    var test = VIEWS[state.view].test;
+    return state.rows.filter(test);
+  }
+
+  function rowByUid(uid) {
+    for (var i = 0; i < state.rows.length; i++) if (String(state.rows[i].uid) === String(uid)) return state.rows[i];
+    return null;
   }
 
   function renderTable() {
     var tbody = document.querySelector('#previewTable tbody');
+    // 편집 중인 칸은 저장하고, 표를 다시 그린 뒤 같은 칸으로 포커스를 돌려준다
+    var act = document.activeElement;
+    var keep = null;
+    if (act && tbody.contains(act)) {
+      var td = act.closest('td[data-col]');
+      if (td) {
+        keep = { uid: td.parentNode.dataset.uid, col: td.dataset.col };
+        if (td.isContentEditable) finishEdit(td.parentNode, rowByUid(keep.uid), td, true);
+      }
+    }
+    closeCatMenu();
     tbody.innerHTML = '';
     var has = state.rows.length > 0;
     $('emptyPreview').hidden = has;
     $('previewBody').hidden = !has;
     var rows = visibleRows();
-    rows.forEach(function (r) { tbody.appendChild(buildRow(r)); });
+    var frag = document.createDocumentFragment();
+    rows.slice(0, state.limit).forEach(function (r) { frag.appendChild(buildRow(r)); });
+    tbody.appendChild(frag);
+    if (rows.length > state.limit) {
+      var more = el('tr', { className: 'more-row' });
+      var mtd = el('td', { colspan: String(COLS.length) });
+      var btn = el('button', { type: 'button', className: 'btn secondary' }, '다음 ' + Math.min(PAGE, rows.length - state.limit) + '건 더 보기 (남은 ' + (rows.length - state.limit) + '건)');
+      btn.addEventListener('click', function () { state.limit += PAGE; renderTable(); });
+      mtd.appendChild(btn);
+      more.appendChild(mtd);
+      tbody.appendChild(more);
+    }
     if (has && !rows.length) {
       var tr = el('tr', { className: 'empty-row' });
-      tr.appendChild(el('td', { colspan: String(COLS.length), className: 'empty' }, '발주할 주문이 없습니다. ② 에서 품목을 고르거나 ‘빠진 주문도 보기’를 켜 보세요.'));
+      tr.appendChild(el('td', { colspan: String(COLS.length), className: 'empty' },
+        state.view === 'check' ? '확인이 필요한 주문이 없습니다. 👍' : state.view === 'excluded' ? '빠진 주문이 없습니다.' : '발주할 주문이 없습니다. ② 에서 품목을 골라 주세요.'));
       tbody.appendChild(tr);
     }
     // 방향키 이동: 표 안에서 Tab 으로 멈추는 칸은 하나만
-    var cells = tbody.querySelectorAll('td[data-col]');
-    var active = cells.length ? (tbody.querySelector('td[data-col="name"]') || cells[0]) : null;
-    if (active) active.tabIndex = 0;
+    var target = keep && tbody.querySelector('tr[data-uid="' + keep.uid + '"] td[data-col="' + keep.col + '"]');
+    var first = target || tbody.querySelector('td[data-col="name"]');
+    if (first) first.tabIndex = 0;
+    if (target) target.focus();
   }
 
   function buildRow(r) {
@@ -453,36 +566,19 @@
     var cb = el('input', { type: 'checkbox', tabindex: '-1', 'aria-label': (r.name || '이름 없음') + ' 주문 발주 포함' });
     cb.addEventListener('change', function () { setIncluded(tr, r, cb.checked); });
     tdc.appendChild(cb);
-    var dot = el('span', { className: 'mk ' + r.market, title: r.source, 'aria-label': r.source }, r.market === 'smartstore' ? 'N' : r.market === 'coupang' ? 'C' : '·');
-    tdc.appendChild(dot);
+    tdc.appendChild(el('span', { className: 'mk ' + r.market, title: r.source, 'aria-label': r.source }, r.market === 'smartstore' ? 'N' : r.market === 'coupang' ? 'C' : '·'));
     tr.appendChild(tdc);
-
-    // 품목 분류 (직접 바꿀 수 있음)
-    var tdcat = el('td', { className: 'c-cat', 'data-col': 'cat', 'data-label': '품목', tabindex: '-1' });
-    var sel = el('select', { tabindex: '-1', 'aria-label': (r.name || '') + ' 주문 품목' });
-    state.catalog.forEach(function (c) { sel.appendChild(el('option', { value: c.name }, c.name)); });
-    sel.appendChild(el('option', { value: '' }, '기타'));
-    sel.addEventListener('change', function () {
-      r.categoryManual = sel.value;
-      refreshAfterChange(tr, r);
-      tdcat.focus();
-    });
-    sel.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); tdcat.focus(); }
-    });
-    tdcat.appendChild(sel);
-    tdcat.appendChild(el('span', { className: 'row-reason' }));
-    tr.appendChild(tdcat);
 
     EDIT_FIELDS.forEach(function (f) {
       var td = el('td', { className: 'c-' + (f === 'address' ? 'addr' : f), 'data-col': f, 'data-field': f, 'data-label': COL_LABEL[f], tabindex: '-1' });
       td.addEventListener('click', function () { if (!td.isContentEditable) startEdit(td); });
       td.addEventListener('blur', function () { if (td.isContentEditable) finishEdit(tr, r, td, true); });
       tr.appendChild(td);
+      if (f === 'item') tr.appendChild(buildCatCell(tr, r));
     });
 
     var tda = el('td', { className: 'c-act', 'data-col': 'act', tabindex: '-1' });
-    var undo = el('button', { type: 'button', className: 'icon-btn undo', tabindex: '-1', title: '이 주문을 원래 값으로 되돌리기', 'aria-label': '원래 값으로 되돌리기' }, '↺');
+    var undo = el('button', { type: 'button', className: 'undo', tabindex: '-1', title: '이 주문을 원래 값으로 되돌리기' }, '↺ 되돌리기');
     undo.addEventListener('click', function () { revertRow(tr, r); });
     tda.appendChild(undo);
     tr.appendChild(tda);
@@ -491,24 +587,87 @@
     return tr;
   }
 
+  // 품목은 평소에 글자 태그로만 보여주고, 누르면 메뉴를 연다 (행마다 드롭다운을 두지 않아 가볍다)
+  function buildCatCell(tr, r) {
+    var td = el('td', { className: 'c-cat', 'data-col': 'cat', tabindex: '-1' });
+    var tag = el('button', { type: 'button', className: 'cat-tag', tabindex: '-1', 'aria-haspopup': 'listbox' });
+    tag.addEventListener('click', function (e) { e.stopPropagation(); openCatMenu(td, tr, r); });
+    td.appendChild(tag);
+    td.appendChild(el('span', { className: 'row-reason' }));
+    return td;
+  }
+
+  var catMenu = { node: null, td: null };
+
+  function closeCatMenu(refocus) {
+    if (!catMenu.node) return;
+    catMenu.node.remove();
+    var td = catMenu.td;
+    catMenu.node = null; catMenu.td = null;
+    if (refocus && td && document.body.contains(td)) td.focus();
+  }
+
+  function openCatMenu(td, tr, r) {
+    closeCatMenu();
+    var menu = el('div', { className: 'cat-menu', role: 'listbox', 'aria-label': (r.name || '') + ' 주문의 품목', tabindex: '-1' });
+    var opts = state.catalog.map(function (c) { return { value: c.name, label: c.name, on: !!state.selected[c.name] }; });
+    opts.push({ value: '', label: '기타 (목록에 없는 상품)', on: state.otherSelected });
+    if (r.categoryManual != null) opts.push({ value: null, label: '↺ 자동 분류로 되돌리기', on: true });
+    var cur = 0;
+    opts.forEach(function (o, i) {
+      var item = el('div', { className: 'cat-opt' + (o.value === (r.category || '') && r.categoryManual !== undefined ? ' current' : ''), role: 'option', id: 'catopt-' + i });
+      item.appendChild(el('span', null, o.label));
+      if (!o.on) item.appendChild(el('span', { className: 'cat-off' }, '체크 안 됨 → 발주에서 빠짐'));
+      item.addEventListener('mousedown', function (e) { e.preventDefault(); choose(o); });
+      menu.appendChild(item);
+      if (o.value === (r.category || '')) cur = i;
+    });
+    function highlight(i) {
+      cur = (i + opts.length) % opts.length;
+      Array.prototype.forEach.call(menu.children, function (c, j) { c.classList.toggle('active', j === cur); c.setAttribute('aria-selected', String(j === cur)); });
+      menu.setAttribute('aria-activedescendant', 'catopt-' + cur);
+      menu.children[cur].scrollIntoView({ block: 'nearest' });
+    }
+    function choose(o) {
+      r.categoryManual = o.value;
+      closeCatMenu(true);
+      refreshAfterChange(tr, r);
+      if (!r.included && r.override == null) toast('‘' + (o.label) + '’ 은(는) 체크하지 않은 품목이라 이 주문은 발주에서 빠집니다.');
+    }
+    menu.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); highlight(cur + 1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); highlight(cur - 1); }
+      else if (e.key === 'Home') { e.preventDefault(); highlight(0); }
+      else if (e.key === 'End') { e.preventDefault(); highlight(opts.length - 1); }
+      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(opts[cur]); }
+      else if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); closeCatMenu(true); }
+    });
+    menu.addEventListener('focusout', function () { setTimeout(function () { if (catMenu.node === menu && !menu.contains(document.activeElement)) closeCatMenu(); }, 0); });
+    td.appendChild(menu);
+    catMenu.node = menu; catMenu.td = td;
+    highlight(cur);
+    menu.focus();
+  }
+
   function startEdit(td) {
     td.contentEditable = 'plaintext-only';
     if (td.contentEditable !== 'plaintext-only') td.contentEditable = 'true';
     td.dataset.before = td.textContent;
     td.classList.add('editing');
     td.focus();
+    // 수량은 통째로 바꾸기 쉽게 전체 선택, 글자 칸은 기존 내용 뒤에 커서
     var range = document.createRange();
     range.selectNodeContents(td);
+    if (td.dataset.field !== 'qty') range.collapse(false);
     var s = window.getSelection();
     s.removeAllRanges();
     s.addRange(range);
   }
 
   function finishEdit(tr, r, td, save) {
-    td.contentEditable = 'false';
     td.removeAttribute('contenteditable');
     td.classList.remove('editing');
-    if (!save) { td.textContent = td.dataset.before || ''; return; }
+    if (!save || !r) { td.textContent = td.dataset.before || ''; return; }
     var f = td.dataset.field;
     var text = td.textContent.replace(/\s*\n\s*/g, ' ').trim();
     if (f === 'qty') {
@@ -525,8 +684,8 @@
   function refreshAfterChange(tr, r) {
     validate(r);
     compute();
-    updateRow(tr, r);
-    renderStats(); renderChips(); renderFiles();
+    if (document.body.contains(tr)) updateRow(tr, r);
+    renderLight();
   }
 
   function setIncluded(tr, r, on) {
@@ -541,27 +700,25 @@
     toast('원래 값으로 되돌렸습니다.');
   }
 
-  function fmt(v) { return v == null ? '' : String(v); }
-
   function updateRow(tr, r) {
-    var cls = [];
-    if (!r.included) cls.push('excluded');
-    tr.className = cls.join(' ');
+    tr.className = r.included ? '' : 'excluded';
     tr.querySelector('.c-check input').checked = r.included;
-    var sel = tr.querySelector('.c-cat select');
-    sel.value = r.category || '';
-    sel.classList.toggle('manual', r.categoryManual != null);
+    var tag = tr.querySelector('.cat-tag');
+    tag.textContent = (r.category || '기타') + ' ▾';
+    tag.classList.toggle('manual', r.categoryManual != null);
+    tag.setAttribute('aria-label', '품목: ' + (r.category || '기타') + (r.categoryManual != null ? ' (직접 지정)' : '') + ', 바꾸려면 누르세요');
     var reason = tr.querySelector('.c-cat .row-reason');
     var notes = [];
     if (r.reasons.length) notes.push((r.included ? '직접 포함: ' : '빠짐: ') + r.reasons.join(', '));
-    r.warns.forEach(function (w) { notes.push('⚠ ' + P.ISSUE_LABEL[w]); });
+    r.warns.forEach(function (w) {
+      notes.push('⚠ ' + (w === 'ambiguous' ? '여러 품목(' + r.matches.join('·') + ')에 해당' : P.ISSUE_LABEL[w]));
+    });
     reason.textContent = notes.join(' · ');
     reason.hidden = !notes.length;
-    tr.querySelector('.c-cat').classList.toggle('soft', r.included && r.warns.indexOf('ambiguous') !== -1);
+    tr.querySelector('.c-cat').classList.toggle('soft', r.included && r.warns.length > 0);
 
     var bad = {};
     r.issues.forEach(function (i) { bad[ISSUE_FIELD[i]] = P.BLOCKING[i] ? 'bad' : (bad[ISSUE_FIELD[i]] || 'soft'); });
-    var anyEdited = r.categoryManual != null;
     EDIT_FIELDS.forEach(function (f) {
       var td = tr.querySelector('td[data-field="' + f + '"]');
       if (!td.isContentEditable) td.textContent = fmt(r[f]);
@@ -574,36 +731,35 @@
       if (fmt(r[f]) !== fmt(r.orig[f])) {
         td.classList.add('edited');
         tips.push('고친 칸 · 원래 값: ' + (fmt(r.orig[f]) || '(빈 칸)'));
-        anyEdited = true;
       }
       if (tips.length) td.title = tips.join(' / '); else td.removeAttribute('title');
     });
-    tr.querySelector('.c-act .undo').hidden = !anyEdited;
+    tr.querySelector('.c-act .undo').hidden = !isEdited(r);
   }
 
   function included() { return state.rows.filter(function (r) { return r.included; }); }
 
   function renderStats() {
     var inc = included();
+    var out = state.rows.filter(function (r) { return !r.included; });
+    var check = state.rows.filter(needsCheck);
+    var problems = inc.filter(function (r) { return blockingIssues(r).length; }).length;
+    var edited = state.rows.filter(isEdited).length;
+
+    // 보기 탭 (발주할 주문 / 확인 필요 / 빠진 주문)
+    var counts = { included: inc.length, check: check.length, excluded: out.length };
+    var tabs = $('viewTabs');
+    tabs.innerHTML = '';
+    Object.keys(VIEWS).forEach(function (v) {
+      var b = el('button', { type: 'button', role: 'tab', className: 'view-tab ' + v + (state.view === v ? ' active' : ''), 'aria-selected': String(state.view === v) });
+      b.appendChild(el('b', null, String(counts[v])));
+      b.appendChild(document.createTextNode(' ' + VIEWS[v].label));
+      b.addEventListener('click', function () { setView(v); });
+      tabs.appendChild(b);
+    });
     var byMarket = {};
     inc.forEach(function (r) { byMarket[r.source] = (byMarket[r.source] || 0) + 1; });
-    var problems = inc.filter(function (r) { return blockingIssues(r).length; }).length;
-    var soft = inc.filter(function (r) { return !blockingIssues(r).length && (r.issues.length || r.warns.length); }).length;
-    var out = state.rows.filter(function (r) { return !r.included; });
-    var stats = $('stats');
-    stats.innerHTML = '';
-    function stat(cls, num, label, onClick) {
-      var d = el(onClick ? 'button' : 'div', { className: 'stat ' + cls });
-      if (onClick) { d.type = 'button'; d.addEventListener('click', onClick); }
-      d.appendChild(el('b', null, String(num)));
-      d.appendChild(document.createTextNode(label));
-      stats.appendChild(d);
-    }
-    stat('main', inc.length, '발주할 주문');
-    Object.keys(byMarket).forEach(function (m) { stat('', byMarket[m], m); });
-    if (out.length) stat('clickable', out.length, state.showExcluded ? '빠진 주문 숨기기' : '빠진 주문 보기', toggleExcluded);
-    if (problems) stat('danger', problems, '빈 칸·오류');
-    if (soft) stat('warn', soft, '확인 권장');
+    $('marketLine').textContent = Object.keys(byMarket).map(function (m) { return m + ' ' + byMarket[m] + '건'; }).join(' · ') + (edited ? ' · 고친 주문 ' + edited + '건' : '');
 
     renderExcludeNotice(out);
 
@@ -626,7 +782,14 @@
     steps.forEach(function (b, i) {
       b.parentNode.className = done ? (i < 2 ? 'done' : 'active') : (i === 0 ? 'active' : '');
       b.querySelector('.step-mark').textContent = done && i < 2 ? '✓' : String(i + 1);
+      b.tabIndex = done ? 0 : -1; // 데이터가 없을 때는 Tab 이 단계 표시에 걸리지 않게
     });
+  }
+
+  function setView(v) {
+    state.view = v;
+    state.limit = PAGE;
+    renderTable(); renderStats();
   }
 
   // 왜 빠졌는지 사유별로 요약 (특히 지난번 품목 선택 때문에 빠진 주문을 놓치지 않게)
@@ -637,9 +800,8 @@
     var byReason = {}, byItem = {};
     out.forEach(function (r) {
       var reason = r.override === false ? '직접 뺌' : (r.reasons[0] || '').replace(/ \(.*\)$/, '');
-      if (/^다른 파일에서/.test(reason)) reason = '취소·반품';
       byReason[reason] = (byReason[reason] || 0) + 1;
-      if (r.override !== false && /^품목 미선택/.test(r.reasons[0] || '')) {
+      if (r.override !== false && r.reasons.length === 1 && /^품목 미선택/.test(r.reasons[0])) {
         var k = r.category || '기타';
         byItem[k] = (byItem[k] || 0) + 1;
       }
@@ -653,67 +815,77 @@
     if (itemKeys.length) {
       box.appendChild(el('p', { className: 'small' }, '체크하지 않은 품목: ' + itemKeys.map(function (k) { return k + ' ' + byItem[k] + '건'; }).join(', ') + ' — 오늘 발주에 넣으려면 ② 에서 체크하세요.'));
     }
-    var btn = el('button', { type: 'button', className: 'link-btn' }, state.showExcluded ? '빠진 주문 숨기기' : '빠진 주문 보기');
-    btn.addEventListener('click', toggleExcluded);
-    box.appendChild(btn);
+    if (state.view !== 'excluded') {
+      var btn = el('button', { type: 'button', className: 'link-btn' }, '빠진 주문 보기');
+      btn.addEventListener('click', function () { setView('excluded'); });
+      box.appendChild(btn);
+    }
     box.hidden = false;
-  }
-
-  function toggleExcluded() {
-    state.showExcluded = !state.showExcluded;
-    $('showExcluded').checked = state.showExcluded;
-    renderTable(); renderStats();
   }
 
   /* ---------------- 표 키보드 조작 ---------------- */
 
   function cellAt(tr, col) { return tr && tr.querySelector('td[data-col="' + col + '"]'); }
 
-  function moveFocus(td, dRow, dCol) {
-    var tr = td.parentNode;
-    var ci = COLS.indexOf(td.dataset.col);
-    var target;
-    if (dRow) {
-      var sib = dRow > 0 ? tr.nextElementSibling : tr.previousElementSibling;
-      target = cellAt(sib, td.dataset.col);
-    } else {
-      target = cellAt(tr, COLS[Math.max(0, Math.min(COLS.length - 1, ci + dCol))]);
-    }
+  function focusCell(target) {
     if (!target) return;
-    var tbody = tr.parentNode;
+    var tbody = target.closest('tbody');
     tbody.querySelectorAll('td[tabindex="0"]').forEach(function (c) { c.tabIndex = -1; });
     target.tabIndex = 0;
     target.focus();
   }
 
-  document.querySelector('#previewTable tbody').addEventListener('keydown', function (e) {
-    var td = e.target.closest('td[data-col]');
-    if (!td) return;
+  function moveFocus(td, dRow, dCol) {
     var tr = td.parentNode;
-    var r = state.rows.filter(function (x) { return String(x.uid) === tr.dataset.uid; })[0];
+    var ci = COLS.indexOf(td.dataset.col);
+    if (dRow) {
+      var sib = dRow > 0 ? tr.nextElementSibling : tr.previousElementSibling;
+      focusCell(cellAt(sib, td.dataset.col));
+    } else {
+      focusCell(cellAt(tr, COLS[Math.max(0, Math.min(COLS.length - 1, ci + dCol))]));
+    }
+  }
+
+  var tbodyEl = document.querySelector('#previewTable tbody');
+
+  tbodyEl.addEventListener('keydown', function (e) {
+    var td = e.target.closest('td[data-col]');
+    if (!td || e.target.closest('.cat-menu')) return;
+    var tr = td.parentNode;
+    var r = rowByUid(tr.dataset.uid);
     if (td.isContentEditable) {
       if (e.key === 'Enter') { e.preventDefault(); finishEdit(tr, r, td, true); td.focus(); }
       else if (e.key === 'Escape') { e.preventDefault(); finishEdit(tr, r, td, false); td.focus(); }
+      else if (e.key === 'Tab') {
+        // 스프레드시트처럼 저장 후 옆 칸으로
+        e.preventDefault();
+        finishEdit(tr, r, td, true);
+        moveFocus(td, 0, e.shiftKey ? -1 : 1);
+      }
       return;
     }
-    if (e.target !== td) return; // select 등 내부 요소가 처리
+    if (e.target !== td) return;
     var moves = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
     if (moves[e.key]) { e.preventDefault(); moveFocus(td, moves[e.key][0], moves[e.key][1]); return; }
     if (e.key === 'Enter' || e.key === 'F2' || e.key === ' ') {
       e.preventDefault();
       var col = td.dataset.col;
       if (col === 'check') { setIncluded(tr, r, !r.included); }
-      else if (col === 'cat') { td.querySelector('select').focus(); }
+      else if (col === 'cat') { openCatMenu(td, tr, r); }
       else if (col === 'act') { if (!td.querySelector('.undo').hidden) revertRow(tr, r); }
       else if (e.key !== ' ') startEdit(td);
     }
   });
 
-  document.querySelector('#previewTable tbody').addEventListener('focusin', function (e) {
+  tbodyEl.addEventListener('focusin', function (e) {
     var td = e.target.closest('td[data-col]');
     if (!td || td.tabIndex === 0) return;
     this.querySelectorAll('td[tabindex="0"]').forEach(function (c) { c.tabIndex = -1; });
     td.tabIndex = 0;
+  });
+
+  document.addEventListener('mousedown', function (e) {
+    if (catMenu.node && !catMenu.node.contains(e.target)) closeCatMenu();
   });
 
   /* ---------------- 동작 ---------------- */
@@ -794,23 +966,47 @@
     });
   }
 
+  // 다운로드 직전 점검: 빈 칸·오류, 중복 의심·품목 겹침, 목록에 없는 상품이 빠지는지
+  function preflight(rows) {
+    var nodes = [];
+    var bad = rows.filter(function (r) { return blockingIssues(r).length; });
+    var warn = rows.filter(function (r) { return r.warns.length; });
+    var unknownOut = state.rows.filter(function (r) { return !r.included && r.override == null && r.reasons.length === 1 && r.reasons[0] === '품목 미선택 (기타)'; });
+    if (bad.length) {
+      nodes.push(el('p', null, '🔴 빈 칸이나 오류가 있는 주문 ' + bad.length + '건 — 공급처에서 배송하지 못할 수 있습니다.'));
+      var ul = el('ul');
+      bad.slice(0, 6).forEach(function (r) {
+        ul.appendChild(el('li', null, (r.name || '(이름 없음)') + ' — ' + blockingIssues(r).map(function (i) { return P.ISSUE_LABEL[i]; }).join(', ')));
+      });
+      if (bad.length > 6) ul.appendChild(el('li', null, '외 ' + (bad.length - 6) + '건'));
+      nodes.push(ul);
+    }
+    if (warn.length) {
+      var dup = warn.filter(function (r) { return r.warns.indexOf('dup-suspect') !== -1; }).length;
+      var amb = warn.filter(function (r) { return r.warns.indexOf('ambiguous') !== -1; }).length;
+      var parts = [];
+      if (dup) parts.push('같은 내용이 또 있는 주문 ' + dup + '건');
+      if (amb) parts.push('여러 품목에 걸린 주문 ' + amb + '건');
+      nodes.push(el('p', null, '🟡 ' + parts.join(', ') + ' — 두 번 발주되거나 다른 품목으로 갈 수 있습니다.'));
+    }
+    if (unknownOut.length) {
+      nodes.push(el('p', null, 'ℹ 품목 목록에 없는 상품 ' + unknownOut.length + '건(' + unknownOut.slice(0, 3).map(function (r) { return r.product || r.item; }).join(', ') + (unknownOut.length > 3 ? ' 등' : '') + ')은 발주서에서 빠집니다.'));
+    }
+    return { nodes: nodes, count: bad.length + warn.length + unknownOut.length };
+  }
+
   function download() {
     var rows = included();
     if (!rows.length) return;
-    var bad = rows.filter(function (r) { return blockingIssues(r).length; });
-    var ask = Promise.resolve(true);
-    if (bad.length) {
-      var ul = el('ul');
-      bad.slice(0, 8).forEach(function (r) {
-        ul.appendChild(el('li', null, (r.name || '(이름 없음)') + ' — ' + blockingIssues(r).map(function (i) { return P.ISSUE_LABEL[i]; }).join(', ')));
-      });
-      if (bad.length > 8) ul.appendChild(el('li', null, '외 ' + (bad.length - 8) + '건'));
-      ask = confirmBox('빈 칸이나 오류가 있는 주문이 ' + bad.length + '건 있습니다',
-        [el('p', null, '그대로 받으면 공급처에서 배송하지 못할 수 있습니다.'), ul, el('p', null, '그래도 다운로드할까요?')],
-        '그래도 다운로드');
-    }
+    var pf = preflight(rows);
+    var ask = pf.count
+      ? confirmBox('다운로드 전에 확인해 주세요', pf.nodes.concat([el('p', null, '‘확인 필요’ 탭에서 고칠 수 있습니다. 그대로 다운로드할까요?')]), '그대로 다운로드')
+      : Promise.resolve(true);
     ask.then(function (ok) {
-      if (!ok) return;
+      if (!ok) {
+        if (pf.count) setView('check');
+        return;
+      }
       var btn = $('downloadBtn');
       btn.disabled = true;
       var fileName = POExporter.defaultFileName();
@@ -837,6 +1033,8 @@
         state.files = [];
         state.rows = [];
         state.pending = {};
+        state.view = 'included';
+        state.limit = PAGE;
         setBusy(null);
         render();
         $('pickBtn').focus();
@@ -862,6 +1060,7 @@
     render();
     toast('샘플 데이터를 불러왔습니다. 실제 파일을 올리면 샘플은 자동으로 사라집니다.');
     scrollToCard('step-preview');
+    $('h-preview').focus({ preventScroll: true });
   }
 
   /* ---------------- 이벤트 연결 ---------------- */
@@ -895,18 +1094,24 @@
   $('downloadBtn').addEventListener('click', download);
   $('resetBtn').addEventListener('click', reset);
   $('demoBtn').addEventListener('click', loadDemo);
-  $('showExcluded').addEventListener('change', function (e) {
-    state.showExcluded = e.target.checked; renderTable(); renderStats();
-  });
+  $('itemsToggle').addEventListener('click', function () { state.itemsOpen = !state.itemsOpen; renderChips(); });
   $('selectAllBtn').addEventListener('click', function () {
-    state.catalog.forEach(function (c) { state.selected[c.name] = true; });
-    state.otherSelected = true; saveCatalog(); render();
+    toggleItem(function () {
+      state.catalog.forEach(function (c) { state.selected[c.name] = true; });
+      state.otherSelected = true;
+    });
   });
   $('selectNoneBtn').addEventListener('click', function () {
-    state.catalog.forEach(function (c) { state.selected[c.name] = false; });
-    state.otherSelected = false; saveCatalog(); render();
+    toggleItem(function () {
+      state.catalog.forEach(function (c) { state.selected[c.name] = false; });
+      state.otherSelected = false;
+    });
   });
-  $('manageBtn').addEventListener('click', function () { state.managing = !state.managing; renderManage(); });
+  $('manageBtn').addEventListener('click', function () {
+    state.managing = !state.managing;
+    renderManage();
+    if (state.managing) { var first = document.querySelector('#manageList input'); (first || $('newItemInput')).focus(); }
+  });
   $('manageDoneBtn').addEventListener('click', function () { state.managing = false; renderManage(); $('manageBtn').focus(); });
   $('addItemForm').addEventListener('submit', function (e) {
     e.preventDefault();
@@ -918,11 +1123,12 @@
       toast('‘' + name + '’ 은(는) 이미 목록에 있습니다.');
       return;
     }
-    state.catalog.push({ name: name, keywords: [n] });
+    state.catalog.push({ name: name, keywords: [] });
     state.selected[name] = true;
     input.value = '';
     saveCatalog(); render();
-    toast('‘' + name + '’ 품목을 추가했습니다. 필요하면 키워드를 더 넣어 주세요.');
+    input.focus();
+    if (storageOk) toast('‘' + name + '’ 품목을 추가했습니다. 필요하면 키워드를 더 넣어 주세요.');
   });
   $('restoreCatalogBtn').addEventListener('click', function () {
     var before = { catalog: state.catalog, selected: state.selected, other: state.otherSelected };
