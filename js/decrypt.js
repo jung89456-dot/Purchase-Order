@@ -64,15 +64,26 @@
     return e ? toBytes(e.content) : null;
   }
 
-  /** 암호화된 OOXML(CFB 컨테이너)인지 판별 */
-  function isEncrypted(data) {
+  /**
+   * 암호화된 OOXML(CFB 컨테이너)인지, 이 앱이 풀 수 있는 방식(Agile)인지 판별
+   * @returns {{encrypted: boolean, supported: boolean}}
+   */
+  function inspect(data) {
     var sig = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
-    for (var i = 0; i < 8; i++) if (data[i] !== sig[i]) return false;
+    for (var i = 0; i < 8; i++) if (data[i] !== sig[i]) return { encrypted: false, supported: false };
     try {
       var cfb = root.XLSX.CFB.read(data, { type: 'array' });
-      return !!(findEntry(cfb, 'EncryptionInfo') && findEntry(cfb, 'EncryptedPackage'));
-    } catch (e) { return false; }
+      var info = findEntry(cfb, 'EncryptionInfo');
+      if (!info || !findEntry(cfb, 'EncryptedPackage')) return { encrypted: false, supported: false };
+      var major = info[0] | (info[1] << 8), minor = info[2] | (info[3] << 8);
+      return { encrypted: true, supported: major === 4 && minor === 4 };
+    } catch (e) { return { encrypted: false, supported: false }; }
   }
+
+  function isEncrypted(data) { return inspect(data).encrypted; }
+
+  // 화면이 멈추지 않도록 반복 계산 사이사이 브라우저에 제어권을 넘긴다
+  function yieldToUi(v) { return new Promise(function (res) { setTimeout(function () { res(v); }, 0); }); }
 
   function parseInfo(info) {
     var major = info[0] | (info[1] << 8), minor = info[2] | (info[3] << 8);
@@ -125,11 +136,11 @@
       var i = 0;
       function step() {
         var chain = Promise.resolve(h);
-        var end = Math.min(i + 2000, k.spin);
+        var end = Math.min(i + 1000, k.spin);
         for (; i < end; i++) {
           (function (n) { chain = chain.then(function (cur) { return hash(k.hash, concat(u32(n), cur)); }); })(i);
         }
-        return chain.then(function (cur) { h = cur; return i < k.spin ? step() : h; });
+        return chain.then(yieldToUi).then(function (cur) { h = cur; return i < k.spin ? step() : h; });
       }
       return step();
     });
@@ -193,7 +204,7 @@
     });
   }
 
-  var api = { isEncrypted: isEncrypted, decrypt: decrypt };
+  var api = { inspect: inspect, isEncrypted: isEncrypted, decrypt: decrypt };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.PODecrypt = api;
 })(typeof self !== 'undefined' ? self : this);

@@ -112,8 +112,40 @@ test('품목 분류', () => {
   assert.strictEqual(P.classify('기장 쪽파 1단', cat), '기장 쪽파');
   assert.strictEqual(P.classify('옛날 구포국수', cat), '구포국수');
   assert.strictEqual(P.classify('오곡 곡물면', cat), '곡물면');
+  assert.strictEqual(P.classify('오곡 곡물 국수', cat), '곡물면');
   assert.strictEqual(P.classify('국산 들기름', cat), '');
   assert.strictEqual(P.classify('국산 들기름', cat.concat([{ name: '들기름', keywords: ['들기름'] }])), '들기름');
+});
+
+test('품목 오분류 방지 — 지역명·흔한 채소명만으로는 분류하지 않음', () => {
+  const cat = P.DEFAULT_CATALOG;
+  for (const t of ['예산 사과 5kg', '구포시장 수제 어묵', '진도 쪽파', '돌미나리']) {
+    assert.strictEqual(P.classify(t, cat), '', t);
+  }
+  assert.strictEqual(P.classify('구포 칼국수', cat), '칼국수');
+  // 여러 품목에 걸리면 확인 필요
+  assert.deepStrictEqual(P.classifyText('칼국수+수제비 세트', cat).matches.sort(), ['수제비', '칼국수']);
+  // 상품명 우선, 옵션은 보조
+  assert.strictEqual(P.classifyProduct('생칼국수 1kg', '수제비 추가', cat).name, '칼국수');
+  assert.strictEqual(P.classifyProduct('산지직송 채소', '기장쪽파 1kg', cat).name, '기장 쪽파');
+  // 저장된 키워드가 문자열이어도 동작
+  assert.strictEqual(P.classify('들기름', [{ name: '기름', keywords: '들기름, 참기름' }]), '기름');
+});
+
+test('이미 발송된 주문 제외, +82 번호 정규화', () => {
+  assert.strictEqual(P.excludeReason(['배송완료']), '배송완료');
+  assert.ok(P.isShippedStatus('구매확정'));
+  assert.strictEqual(P.formatPhone('+82 10-1234-5678'), '010-1234-5678');
+});
+
+test('숫자로 저장된 긴 주문번호도 그대로 키로 사용', () => {
+  const r = P.convertSheet([
+    ['상품주문번호', '수취인명', '상품명', '수량', '수취인연락처1', '통합배송지'],
+    [2026092812345601, '가', '칼국수', 1, '01011112222', '서울'],
+    [2026092812345602, '나', '칼국수', 1, '01033334444', '부산'],
+  ]);
+  assert.notStrictEqual(r.rows[0].key, r.rows[1].key);
+  assert.strictEqual(r.rows[0].keyKind, 'o');
 });
 
 test('헤더를 못 찾으면 오류', () => {

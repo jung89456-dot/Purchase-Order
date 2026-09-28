@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+  <a class="skip-link" href="#downloadBtn" id="skipLink">다운로드 버튼으로 바로 가기</a>
   <header class="topbar">
     <div class="topbar-inner">
       <h1>발주서 자동 변환기 <span class="version" id="appVersion"></span></h1>
@@ -16,9 +17,9 @@
 
   <main class="container">
     <ol class="stepper" aria-label="진행 단계">
-      <li id="stepper-1" class="active">① 주문 파일 올리기</li>
-      <li id="stepper-2">② 품목 고르기</li>
-      <li id="stepper-3">③ 확인 후 다운로드</li>
+      <li><button type="button" id="stepper-1" data-target="step-upload"><span class="step-mark">1</span> 주문 파일 올리기</button></li>
+      <li><button type="button" id="stepper-2" data-target="step-items"><span class="step-mark">2</span> 품목 고르기</button></li>
+      <li><button type="button" id="stepper-3" data-target="step-preview"><span class="step-mark">3</span> 확인 후 다운로드</button></li>
     </ol>
 
     <!-- 1. 업로드 -->
@@ -31,10 +32,11 @@
         <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" multiple class="sr-only" tabindex="-1" aria-hidden="true">
         <div class="dz-icon" aria-hidden="true">📄</div>
         <p class="dz-text"><span class="only-desktop">스마트스토어·쿠팡 주문 엑셀을 여기에 끌어다 놓거나</span><span class="only-mobile">아래 버튼을 눌러 주문 엑셀을 고르세요</span></p>
+        <p class="dz-compact-text"><span class="only-desktop">파일을 더 끌어다 놓거나</span></p>
         <button type="button" class="btn" id="pickBtn">파일 선택</button>
-        <p class="dz-hint">.xlsx · .xls · .csv · 여러 파일 한 번에 가능 · 비밀번호 걸린 파일도 OK</p>
+        <p class="dz-hint">.xlsx · .xls · .csv 파일을 여러 개 한 번에 올릴 수 있고, 비밀번호가 걸린 파일도 열 수 있습니다.</p>
       </div>
-      <div class="upload-extra">
+      <div class="upload-extra" id="uploadExtra">
         <details class="help">
           <summary>주문 파일은 어디서 받나요?</summary>
           <ul>
@@ -56,47 +58,57 @@
         <div class="head-actions">
           <button type="button" class="link-btn" id="selectAllBtn">전체 선택</button>
           <button type="button" class="link-btn" id="selectNoneBtn">전체 해제</button>
+          <button type="button" class="btn secondary small-btn" id="manageBtn" aria-expanded="false" aria-controls="managePanel">⚙ 품목 관리</button>
         </div>
       </div>
-      <p class="muted small">체크한 품목의 주문만 발주서에 들어갑니다. 상품명에 품목 이름이 들어 있으면 자동으로 분류됩니다.</p>
+      <p class="muted small">체크한 품목의 주문만 발주서에 들어갑니다. 상품명에 품목 이름(또는 키워드)이 들어 있으면 자동으로 분류됩니다.</p>
       <div class="chips" id="itemChips" role="group" aria-label="발주할 품목"></div>
-      <form class="add-item" id="addItemForm">
-        <label for="newItemInput" class="sr-only">추가할 품목 이름</label>
-        <input type="text" id="newItemInput" placeholder="기타 품목 추가 (예: 들기름)" maxlength="30" autocomplete="off">
-        <button type="submit" class="btn secondary">+ 추가</button>
-        <button type="button" class="link-btn" id="restoreCatalogBtn">기본 품목으로 되돌리기</button>
-      </form>
+
+      <div class="manage-panel" id="managePanel" hidden>
+        <h3>품목 관리</h3>
+        <p class="muted small">키워드는 쉼표로 구분합니다. 상품명에 키워드가 들어 있으면 그 품목으로 분류됩니다. (띄어쓰기는 무시)</p>
+        <ul class="manage-list" id="manageList"></ul>
+        <form class="add-item" id="addItemForm">
+          <label for="newItemInput" class="sr-only">추가할 품목 이름</label>
+          <input type="text" id="newItemInput" placeholder="새 품목 이름 (예: 들기름)" maxlength="30" autocomplete="off">
+          <button type="submit" class="btn secondary">+ 품목 추가</button>
+        </form>
+        <div class="manage-foot">
+          <button type="button" class="link-btn" id="restoreCatalogBtn">기본 품목으로 되돌리기</button>
+          <button type="button" class="btn" id="manageDoneBtn">완료</button>
+        </div>
+      </div>
     </section>
 
     <!-- 3. 확인 및 다운로드 -->
     <section class="card" id="step-preview" aria-labelledby="h-preview">
       <div class="card-head">
         <h2 id="h-preview">③ 확인 후 다운로드</h2>
-        <label class="toggle"><input type="checkbox" id="showExcluded"> 제외된 주문도 보기</label>
+        <label class="toggle"><input type="checkbox" id="showExcluded"> 빠진 주문도 보기</label>
       </div>
       <div id="emptyPreview" class="empty">주문 파일을 올리면 여기에 발주서 미리보기가 나타납니다.</div>
       <div id="previewBody" hidden>
         <div class="stats" id="stats" aria-live="polite"></div>
-        <p class="muted small">칸을 눌러 내용을 바로 고칠 수 있습니다. 맨 앞 체크를 끄면 그 주문은 발주서에서 빠집니다.</p>
+        <div class="notice-box" id="excludeNotice" hidden></div>
+        <p class="muted small table-help">칸을 눌러 바로 고칠 수 있습니다(Enter 저장, Esc 취소). 키보드는 방향키로 칸을 옮기고 Enter로 고칩니다. 맨 앞 체크를 끄면 그 주문은 빠집니다.</p>
         <div class="table-wrap" id="tableWrap">
-          <table id="previewTable">
+          <table id="previewTable" role="grid" aria-label="발주서 미리보기">
             <thead>
               <tr>
                 <th scope="col" class="c-check"><span class="sr-only">발주 포함</span></th>
-                <th scope="col">마켓</th>
-                <th scope="col">품목</th>
-                <th scope="col">수취자명</th>
-                <th scope="col">구입품목</th>
+                <th scope="col" class="c-cat">품목</th>
+                <th scope="col" class="c-name">수취자명</th>
+                <th scope="col" class="c-item">구입품목</th>
                 <th scope="col" class="c-qty">수량</th>
-                <th scope="col">전화번호</th>
-                <th scope="col">주소</th>
-                <th scope="col">배송메세지</th>
+                <th scope="col" class="c-phone">전화번호</th>
+                <th scope="col" class="c-addr">주소</th>
+                <th scope="col" class="c-memo">배송메세지</th>
+                <th scope="col" class="c-act"><span class="sr-only">되돌리기</span></th>
               </tr>
             </thead>
             <tbody></tbody>
           </table>
         </div>
-        <p class="scroll-hint only-mobile">← 표를 옆으로 밀어 나머지 칸을 볼 수 있습니다 →</p>
       </div>
     </section>
   </main>
@@ -108,7 +120,7 @@
     </div>
   </div>
 
-  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden><span id="toastText"></span><button type="button" class="toast-action" id="toastAction" hidden></button></div>
 
   <dialog id="pwDialog" aria-labelledby="pwTitle">
     <form method="dialog" id="pwForm">
@@ -130,7 +142,7 @@
       <h3 id="confirmTitle"></h3>
       <div id="confirmBody"></div>
       <div class="dialog-actions">
-        <button type="submit" value="cancel" class="btn secondary">취소</button>
+        <button type="submit" value="cancel" class="btn secondary" id="confirmCancel">취소</button>
         <button type="submit" value="ok" class="btn primary" id="confirmOk">확인</button>
       </div>
     </form>
