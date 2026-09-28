@@ -310,3 +310,64 @@ test('3,000건도 빠르게 (처음 200건만 그림)', async () => {
     assert.strictEqual(await page.locator('#previewTable tbody tr[data-uid]').count(), 400);
   });
 });
+
+test('샘플 2개 파일은 점검창 없이 바로 다운로드 (기타 제외는 설정이므로)', async () => {
+  await withPage(async (page) => {
+    await upload(page, [sample('스마트스토어_주문샘플.xlsx'), sample('쿠팡_주문샘플.xlsx')]);
+    await page.waitForFunction(() => window.__po.state.files.length === 2 && !window.__po.state.busy);
+    const [download] = await Promise.all([page.waitForEvent('download', { timeout: 5000 }), page.click('#downloadBtn')]);
+    assert.ok(download);
+    assert.ok(!(await page.locator('#confirmDialog[open]').count()));
+    // 확인 필요가 없으면 초록 표시
+    assert.match(await page.textContent('#tab-check'), /확인 필요 없음/);
+  });
+});
+
+test('품목 메뉴는 표 밖에 떠서 잘리지 않음', async () => {
+  await withPage(async (page) => {
+    await page.click('#demoBtn');
+    await page.click('#previewTable tbody tr:last-child .cat-tag');
+    const box = await page.evaluate(() => {
+      const m = document.querySelector('.cat-menu');
+      const r = m.getBoundingClientRect();
+      return { parentIsBody: m.parentElement === document.body, h: r.height, top: r.top, bottom: r.bottom, vh: innerHeight, full: m.scrollHeight <= m.clientHeight + 1 };
+    });
+    assert.ok(box.parentIsBody);
+    assert.ok(box.top >= 0 && box.bottom <= box.vh, JSON.stringify(box));
+    assert.ok(box.full, '메뉴 항목이 모두 보임 ' + JSON.stringify(box));
+  });
+});
+
+test('체크를 끈 품목은 여러 품목에 걸려도 섞이지 않음', async () => {
+  const rows = [['수취인명', '상품명', '수량', '전화번호', '주소'],
+    ['가', '구포시장 칼국수', 1, '01011112222', '서울'],
+    ['나', '칼국수+수제비 세트', 1, '01033334444', '부산']];
+  await withPage(async (page) => {
+    await upload(page, [{ name: 's.xlsx', mimeType: T, buffer: mkXlsx(rows) }]);
+    await page.waitForFunction(() => window.__po.state.files.length === 1 && !window.__po.state.busy);
+    await chip(page, '칼국수').uncheck();
+    const r = await page.evaluate(() => window.__po.state.rows.map((x) => [x.category, x.included]));
+    assert.deepStrictEqual(r[0], ['칼국수', false]);
+    // 세트는 대표 품목(수제비)이 체크되어 있으면 포함되고 '여러 품목' 경고
+    await chip(page, '칼국수').check();
+    await chip(page, '수제비').uncheck();
+    assert.strictEqual(await page.evaluate(() => window.__po.state.rows[1].included), false);
+  });
+});
+
+test('탭은 방향키로 이동, 빈 필수 칸에는 안내 문구', async () => {
+  const rows = [['수취인명', '상품명', '수량', '전화번호', '주소'], ['가', '칼국수', 1, '01011112222', '']];
+  await withPage(async (page) => {
+    await upload(page, [{ name: 'n.xlsx', mimeType: T, buffer: mkXlsx(rows) }]);
+    await page.waitForFunction(() => window.__po.state.files.length === 1 && !window.__po.state.busy);
+    const hint = await page.evaluate(() => {
+      const td = document.querySelector('td[data-field="address"]');
+      return td.dataset.hint + '|' + getComputedStyle(td, '::before').content;
+    });
+    assert.match(hint, /주소 입력 필요\|"주소 입력 필요"/);
+    assert.match(await page.textContent('.c-cat .row-reason'), /주소 없음/);
+    await page.focus('#tab-included');
+    await page.keyboard.press('ArrowRight');
+    assert.strictEqual(await page.evaluate(() => [window.__po.state.view, document.activeElement.id].join()), 'check,tab-check');
+  });
+});

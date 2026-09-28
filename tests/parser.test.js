@@ -137,6 +137,17 @@ test('품목 오분류 방지 — 지역명·흔한 채소명만으로는 분류
   assert.strictEqual(P.classify('들기름', [{ name: '기름', keywords: '들기름, 참기름' }]), '기름');
 });
 
+test('조합 키워드는 가까이 붙어 있을 때만 — 다른 상품 오분류 방지', () => {
+  const cat = P.DEFAULT_CATALOG;
+  for (const t of ['여수 갓김치', '여수 갓바위 멸치', '기장 멸치액젓 (쪽파김치용)', '청도 반건시 & 미나리 무침', '예산 사과+잔치국수 세트']) {
+    assert.strictEqual(P.classify(t, cat), '', t);
+  }
+  assert.strictEqual(P.classify('미나리 청도산', cat), '청도 미나리');
+  assert.strictEqual(P.classify('여수 돌산 갓 2kg', cat), '여수 돌산갓');
+  // '구포+국수'의 '국수'는 '칼국수' 안의 글자라 겹침으로 보지 않음
+  assert.deepStrictEqual(P.classifyText('구포시장 칼국수', cat).matches, ['칼국수']);
+});
+
 test('이미 발송된 주문 제외, +82 번호 정규화', () => {
   assert.strictEqual(P.excludeReason(['배송완료']), '배송완료');
   assert.ok(P.isShippedStatus('구매확정'));

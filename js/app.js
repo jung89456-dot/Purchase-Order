@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v4';
+  var APP_VERSION = 'v5';
   var STORE_KEY = 'po.items.v1';
 
   var $ = function (id) { return document.getElementById(id); };
@@ -191,6 +191,8 @@
       setBusy(null);
       render();
       if (state.rows.length) {
+        var inc = included().length;
+        $('srStatus').textContent = '주문 ' + state.rows.length + '건을 읽었습니다. 발주 ' + inc + '건, 빠진 주문 ' + (state.rows.length - inc) + '건.';
         scrollToCard('step-preview');
         // 포커스도 결과 쪽으로 옮겨, 다음 Tab 이 화면 밖으로 튀지 않게
         var a = document.activeElement;
@@ -309,9 +311,8 @@
       r.category = cls.name;
       r.matches = cls.matches;
       if (cls.matches.length > 1) warns.push('ambiguous');
-      // 세트 상품처럼 여러 품목에 걸리면, 그중 하나라도 체크되어 있으면 포함
-      var cats = cls.matches.length > 1 ? cls.matches : [r.category];
-      var catOn = cats.some(function (c) { return c ? !!state.selected[c] : state.otherSelected; });
+      // 포함 여부는 표에 보이는 대표 품목 하나로만 정한다 (체크를 끈 품목이 몰래 섞이지 않게)
+      var catOn = r.category ? !!state.selected[r.category] : state.otherSelected;
       if (!catOn) reasons.push('품목 미선택 (' + (r.category || '기타') + ')');
       r.reasons = reasons;
       r.warns = warns;
@@ -324,7 +325,12 @@
   }
 
   function needsCheck(r) {
-    return r.included && (blockingIssues(r).length > 0 || r.issues.length > 0 || r.warns.length > 0);
+    return r.included && (r.issues.length > 0 || r.warns.length > 0 || forcedStopped(r));
+  }
+
+  // 취소·반품·발송된 주문인데 직접 체크해서 포함시킨 경우
+  function forcedStopped(r) {
+    return r.override === true && r.reasons.some(function (x) { return /^(취소·반품|이미 발송)/.test(x); });
   }
 
   function isEdited(r) {
@@ -417,6 +423,7 @@
 
   function toggleItem(apply) {
     apply();
+    state.limit = PAGE; // 많이 펼친 상태에서도 빠르게
     saveCatalog();
     compute();
     renderLight();
@@ -498,6 +505,7 @@
   var PAGE = 200;
   var COLS = ['check', 'name', 'item', 'cat', 'qty', 'phone', 'address', 'memo', 'act'];
   var COL_LABEL = { cat: '품목', name: '수취자명', item: '구입품목', qty: '수량', phone: '전화', address: '주소', memo: '메세지' };
+  var COL_HINT = { name: '이름 입력 필요', item: '품목 입력 필요', qty: '수량 확인', phone: '전화번호 입력 필요', address: '주소 입력 필요', memo: '' };
   var ISSUE_FIELD = { name: 'name', item: 'item', phone: 'phone', 'phone-format': 'phone', address: 'address', qty: 'qty', 'qty-default': 'qty' };
 
   var VIEWS = {
@@ -643,11 +651,43 @@
       else if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); closeCatMenu(true); }
     });
     menu.addEventListener('focusout', function () { setTimeout(function () { if (catMenu.node === menu && !menu.contains(document.activeElement)) closeCatMenu(); }, 0); });
-    td.appendChild(menu);
+    // 표 스크롤 영역에 잘리지 않도록 body 에 띄우고, 아래 공간이 부족하면 위로 펼친다
+    document.body.appendChild(menu);
+    placeMenu(menu, td.querySelector('.cat-tag'));
     catMenu.node = menu; catMenu.td = td;
     highlight(cur);
-    menu.focus();
+    menu.focus({ preventScroll: true });
   }
+
+  var MENU_MAX = 460;
+
+  function placeMenu(menu, anchor) {
+    var a = anchor.getBoundingClientRect();
+    var bar = $('actionbar').hidden ? 0 : $('actionbar').getBoundingClientRect().top;
+    var bottomLimit = bar || window.innerHeight;
+    menu.style.maxHeight = '';
+    var h = Math.min(menu.scrollHeight, MENU_MAX);
+    var below = bottomLimit - a.bottom - 8, above = a.top - 8;
+    var up = below < h && above > below;
+    var avail = Math.max(120, up ? above : below);
+    menu.style.maxHeight = Math.min(MENU_MAX, avail) + 'px';
+    menu.style.left = Math.max(8, Math.min(a.left, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+    menu.style.top = (up ? Math.max(8, a.top - Math.min(h, avail) - 4) : a.bottom + 4) + 'px';
+  }
+
+  // 스크롤하면 메뉴가 태그를 따라가고, 태그가 화면 밖으로 나가면 닫는다
+  function followMenu() {
+    if (!catMenu.node) return;
+    var tag = catMenu.td && catMenu.td.querySelector('.cat-tag');
+    var r = tag && tag.getBoundingClientRect();
+    if (!r || r.bottom < 0 || r.top > window.innerHeight) closeCatMenu();
+    else placeMenu(catMenu.node, tag);
+  }
+  window.addEventListener('scroll', function (e) {
+    if (catMenu.node && catMenu.node.contains(e.target)) return; // 메뉴 안 스크롤
+    followMenu();
+  }, true);
+  window.addEventListener('resize', followMenu);
 
   function startEdit(td) {
     td.contentEditable = 'plaintext-only';
@@ -709,6 +749,7 @@
     tag.setAttribute('aria-label', '품목: ' + (r.category || '기타') + (r.categoryManual != null ? ' (직접 지정)' : '') + ', 바꾸려면 누르세요');
     var reason = tr.querySelector('.c-cat .row-reason');
     var notes = [];
+    if (r.included) blockingIssues(r).forEach(function (i) { notes.push('⚠ ' + P.ISSUE_LABEL[i]); });
     if (r.reasons.length) notes.push((r.included ? '직접 포함: ' : '빠짐: ') + r.reasons.join(', '));
     r.warns.forEach(function (w) {
       notes.push('⚠ ' + (w === 'ambiguous' ? '여러 품목(' + r.matches.join('·') + ')에 해당' : P.ISSUE_LABEL[w]));
@@ -723,6 +764,7 @@
       var td = tr.querySelector('td[data-field="' + f + '"]');
       if (!td.isContentEditable) td.textContent = fmt(r[f]);
       td.classList.remove('bad', 'soft', 'edited');
+      td.dataset.hint = bad[f] === 'bad' && r.included ? COL_HINT[f] : '';
       var tips = [];
       if (bad[f] && r.included) {
         td.classList.add(bad[f]);
@@ -750,13 +792,32 @@
     var counts = { included: inc.length, check: check.length, excluded: out.length };
     var tabs = $('viewTabs');
     tabs.innerHTML = '';
-    Object.keys(VIEWS).forEach(function (v) {
-      var b = el('button', { type: 'button', role: 'tab', className: 'view-tab ' + v + (state.view === v ? ' active' : ''), 'aria-selected': String(state.view === v) });
-      b.appendChild(el('b', null, String(counts[v])));
-      b.appendChild(document.createTextNode(' ' + VIEWS[v].label));
-      b.addEventListener('click', function () { setView(v); });
+    var keys = Object.keys(VIEWS);
+    keys.forEach(function (v, i) {
+      var on = state.view === v;
+      var zeroCheck = v === 'check' && !counts[v];
+      var b = el('button', {
+        type: 'button', role: 'tab', id: 'tab-' + v, 'aria-controls': 'tableWrap', 'aria-selected': String(on),
+        tabindex: on ? '0' : '-1', className: 'view-tab ' + v + (on ? ' active' : '') + (zeroCheck ? ' clear' : '')
+      });
+      if (zeroCheck) {
+        b.appendChild(document.createTextNode('✓ 확인 필요 없음'));
+      } else {
+        b.appendChild(el('b', null, String(counts[v])));
+        b.appendChild(document.createTextNode(' ' + VIEWS[v].label));
+      }
+      b.addEventListener('click', function () { setView(v, true); });
+      b.addEventListener('keydown', function (e) {
+        var d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+        if (!d) return;
+        e.preventDefault();
+        var next = keys[(i + d + keys.length) % keys.length];
+        setView(next, true);
+        $('tab-' + next).focus();
+      });
       tabs.appendChild(b);
     });
+    $('tableWrap').setAttribute('aria-labelledby', 'tab-' + state.view);
     var byMarket = {};
     inc.forEach(function (r) { byMarket[r.source] = (byMarket[r.source] || 0) + 1; });
     $('marketLine').textContent = Object.keys(byMarket).map(function (m) { return m + ' ' + byMarket[m] + '건'; }).join(' · ') + (edited ? ' · 고친 주문 ' + edited + '건' : '');
@@ -786,10 +847,21 @@
     });
   }
 
-  function setView(v) {
+  function setView(v, reveal) {
     state.view = v;
     state.limit = PAGE;
     renderTable(); renderStats();
+    if (reveal) revealTable();
+  }
+
+  // 탭을 바꾸면 표 윗부분이 화면에 보이도록 (하단 바에 가리지 않게)
+  function revealTable() {
+    var tabs = $('viewTabs');
+    var rect = tabs.getBoundingClientRect();
+    var bar = $('actionbar').hidden ? 0 : $('actionbar').offsetHeight;
+    if (rect.top < 0 || rect.top > window.innerHeight - bar - 240) {
+      window.scrollBy({ top: rect.top - 12, behavior: 'smooth' });
+    }
   }
 
   // 왜 빠졌는지 사유별로 요약 (특히 지난번 품목 선택 때문에 빠진 주문을 놓치지 않게)
@@ -808,6 +880,14 @@
     });
     var itemKeys = Object.keys(byItem);
     box.className = 'notice-box' + (itemKeys.length ? ' warn' : '');
+    if (state.view === 'excluded') {
+      // 이미 빠진 주문을 보고 있으면 한 줄만
+      box.appendChild(el('p', null, itemKeys.length
+        ? '⚠ 체크하지 않은 품목: ' + itemKeys.map(function (k) { return k + ' ' + byItem[k] + '건'; }).join(', ') + ' — 넣으려면 ② 에서 체크하거나 맨 앞 체크를 켜세요.'
+        : 'ℹ 맨 앞 체크를 켜면 그 주문을 발주서에 다시 넣을 수 있습니다.'));
+      box.hidden = false;
+      return;
+    }
     var p = el('p');
     p.appendChild(el('b', null, (itemKeys.length ? '⚠ ' : 'ℹ ') + '발주서에서 빠진 주문 ' + out.length + '건'));
     p.appendChild(document.createTextNode(' — ' + Object.keys(byReason).map(function (k) { return k + ' ' + byReason[k] + '건'; }).join(', ')));
@@ -817,7 +897,7 @@
     }
     if (state.view !== 'excluded') {
       var btn = el('button', { type: 'button', className: 'link-btn' }, '빠진 주문 보기');
-      btn.addEventListener('click', function () { setView('excluded'); });
+      btn.addEventListener('click', function () { setView('excluded', true); });
       box.appendChild(btn);
     }
     box.hidden = false;
@@ -989,10 +1069,16 @@
       if (amb) parts.push('여러 품목에 걸린 주문 ' + amb + '건');
       nodes.push(el('p', null, '🟡 ' + parts.join(', ') + ' — 두 번 발주되거나 다른 품목으로 갈 수 있습니다.'));
     }
-    if (unknownOut.length) {
-      nodes.push(el('p', null, 'ℹ 품목 목록에 없는 상품 ' + unknownOut.length + '건(' + unknownOut.slice(0, 3).map(function (r) { return r.product || r.item; }).join(', ') + (unknownOut.length > 3 ? ' 등' : '') + ')은 발주서에서 빠집니다.'));
+    var forced = rows.filter(forcedStopped);
+    if (forced.length) {
+      nodes.push(el('p', null, '🟠 취소·반품·발송된 주문인데 직접 포함한 주문 ' + forced.length + '건 (' + forced.slice(0, 3).map(function (r) { return r.name; }).join(', ') + (forced.length > 3 ? ' 등' : '') + ')'));
     }
-    return { nodes: nodes, count: bad.length + warn.length + unknownOut.length };
+    var count = bad.length + warn.length + forced.length;
+    // '기타'(목록에 없는 상품)가 빠지는 것은 판매자가 고른 설정이라 창을 띄우지 않고, 어차피 창이 뜰 때만 함께 알린다
+    if (count && unknownOut.length) {
+      nodes.push(el('p', { className: 'muted' }, 'ℹ 참고: 품목 목록에 없는 상품 ' + unknownOut.length + '건(' + unknownOut.slice(0, 3).map(function (r) { return r.product || r.item; }).join(', ') + (unknownOut.length > 3 ? ' 등' : '') + ')은 빠집니다.'));
+    }
+    return { nodes: nodes, count: count };
   }
 
   function download() {
@@ -1004,7 +1090,7 @@
       : Promise.resolve(true);
     ask.then(function (ok) {
       if (!ok) {
-        if (pf.count) setView('check');
+        if (pf.count) setView('check', true);
         return;
       }
       var btn = $('downloadBtn');
@@ -1139,6 +1225,7 @@
     });
   });
 
+  try { localStorage.setItem('po.probe', '1'); localStorage.removeItem('po.probe'); } catch (e) { storageOk = false; }
   loadCatalog();
   render();
 

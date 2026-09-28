@@ -96,10 +96,11 @@
       </div>
       <div id="emptyPreview" class="empty">주문 파일을 올리면 여기에 발주서 미리보기가 나타납니다.</div>
       <div id="previewBody" hidden>
-        <div class="view-tabs" id="viewTabs" role="tablist" aria-label="보기" aria-live="polite"></div>
+        <div class="view-tabs" id="viewTabs" role="tablist" aria-label="보기"></div>
+        <p class="sr-only" id="srStatus" aria-live="polite"></p>
         <div class="notice-box" id="excludeNotice" hidden></div>
         <p class="muted small table-help">칸을 누르면 바로 고칠 수 있고, 맨 앞 체크를 끄면 그 주문은 빠집니다.<span class="only-desktop"> (키보드: 방향키 이동 · Enter 고치기 · Esc 취소)</span></p>
-        <div class="table-wrap" id="tableWrap">
+        <div class="table-wrap" id="tableWrap" role="tabpanel">
           <table id="previewTable" role="grid" aria-label="발주서 미리보기">
             <thead>
               <tr>

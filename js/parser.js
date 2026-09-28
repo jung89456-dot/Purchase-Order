@@ -100,7 +100,7 @@
     return 'etc';
   }
 
-  var MARKET_LABEL = { smartstore: '스마트스토어', coupang: '쿠팡', etc: '기타' };
+  var MARKET_LABEL = { smartstore: '스마트스토어', coupang: '쿠팡', etc: '기타 쇼핑몰' };
 
   var PHONE_PATTERNS = [
     [/^(050\d)(\d{4})(\d{4})$/, '$1-$2-$3'],     // 안심번호 0504-xxxx-xxxx
@@ -178,7 +178,8 @@
   /* ---------- 품목 분류 ---------- */
 
   // 지역명만(예산, 구포) 또는 흔한 채소명만(쪽파, 미나리)으로는 분류하지 않는다 — 다른 산지·상품 오분류 방지.
-  // 'A+B' 키워드는 A 와 B 가 둘 다 들어 있을 때만 일치 (예: '[청도] 미나리', '기장 햇쪽파').
+  // 'A+B' 키워드는 A 와 B 가 가까이(사이 3글자 이내) 붙어 있을 때만 일치 (예: '[청도] 미나리', '기장 햇쪽파').
+  // 한 글자 조각('갓')은 다른 단어에 너무 쉽게 걸리므로 쓰지 않는다.
   // 키워드는 앱의 '품목 관리'에서 판매자가 직접 고칠 수 있다.
   var DEFAULT_CATALOG = [
     { name: '수제비', keywords: ['수제비'] },
@@ -186,7 +187,7 @@
     { name: '구포국수', keywords: ['구포국수', '구포+국수', '구포+소면'] },
     { name: '예산국수', keywords: ['예산국수', '예산+국수'] },
     { name: '기장 쪽파', keywords: ['기장쪽파', '기장+쪽파'] },
-    { name: '여수 돌산갓', keywords: ['돌산갓', '여수+갓'] },
+    { name: '여수 돌산갓', keywords: ['돌산갓', '여수+돌산'] },
     { name: '청도 미나리', keywords: ['청도미나리', '한재미나리', '청도+미나리'] },
     { name: '곡물면', keywords: ['곡물면', '곡물국수'] }
   ];
@@ -199,15 +200,36 @@
     return ks;
   }
 
+  var COMBO_GAP = 3;
+
+  function positions(t, part) {
+    var out = [], i = t.indexOf(part);
+    while (i !== -1) { out.push(i); i = t.indexOf(part, i + 1); }
+    return out;
+  }
+
+  /** 조합 키워드의 모든 조각이 순서와 상관없이 가까이(조각 사이 합계 COMBO_GAP×(조각수-1) 글자 이내) 모여 있는지 */
+  function comboNear(t, parts) {
+    var occ = parts.map(function (p) { return positions(t, p); });
+    if (occ.some(function (o) { return !o.length; })) return false;
+    var total = parts.reduce(function (n, p) { return n + p.length; }, 0);
+    var limit = COMBO_GAP * (parts.length - 1);
+    // 조각이 2~3개뿐이라 위치 조합을 모두 확인해도 충분히 빠르다
+    function search(k, lo, hi) {
+      if (k === parts.length) return hi - lo - total <= limit;
+      return occ[k].some(function (i) {
+        return search(k + 1, Math.min(lo, i), Math.max(hi, i + parts[k].length));
+      });
+    }
+    return search(0, Infinity, -Infinity);
+  }
+
   /** 키워드 일치 길이 (조합 키워드는 가장 긴 조각 길이). 불일치면 0 */
   function matchLen(t, k) {
     if (k.indexOf('+') === -1) return t.indexOf(k) !== -1 ? k.length : 0;
-    var parts = k.split('+').filter(Boolean), longest = 0;
-    for (var i = 0; i < parts.length; i++) {
-      if (t.indexOf(parts[i]) === -1) return 0;
-      longest = Math.max(longest, parts[i].length);
-    }
-    return longest;
+    var parts = k.split('+').filter(Boolean);
+    if (!parts.length || !comboNear(t, parts)) return 0;
+    return Math.max.apply(null, parts.map(function (p) { return p.length; }));
   }
 
   /**
@@ -229,13 +251,15 @@
       hits[entry.name] = hitKeys;
       if (hit > bestLen) { best = entry.name; bestLen = hit; }
     });
-    // 다른 품목의 일치가 전부 1위 품목 키워드 안에 포함된 글자라면 (예: '곡물국수' 안의 '국수') 겹침으로 보지 않는다
+    // 다른 품목의 일치가 1위 품목 키워드 안의 글자 때문이라면 겹침으로 보지 않는다
+    // (예: '곡물국수' 안의 '국수', '구포 칼국수'의 '구포+국수' 중 '국수' ⊂ '칼국수')
     if (matches.length > 1) {
       var bestPlain = hits[best].filter(function (k) { return k.indexOf('+') === -1; });
+      var inside = function (piece) { return bestPlain.some(function (b) { return b !== piece && b.indexOf(piece) !== -1; }); };
       matches = matches.filter(function (m) {
         if (m === best) return true;
         return !hits[m].every(function (k) {
-          return k.indexOf('+') === -1 && bestPlain.some(function (b) { return b !== k && b.indexOf(k) !== -1; });
+          return k.indexOf('+') === -1 ? inside(k) : k.split('+').some(inside);
         });
       });
     }
