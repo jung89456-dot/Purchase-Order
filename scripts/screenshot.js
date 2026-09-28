@@ -23,7 +23,7 @@ const samples = ['스마트스토어_주문샘플.xlsx', '쿠팡_주문샘플.xl
       await page.goto(url);
       if (!suffix) await page.screenshot({ path: path.join(outDir, `${version}-empty.png`), fullPage: true });
       await page.setInputFiles('#fileInput', samples);
-      await page.waitForSelector('#previewTable tbody tr');
+      await page.waitForFunction(() => !window.__po || (window.__po.state.files.length === 2 && !window.__po.state.busy));
       await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(outDir, `${version}${suffix || '-result'}.png`), fullPage: true });
       await page.close();

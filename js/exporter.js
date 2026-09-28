@@ -54,7 +54,8 @@
   function defaultFileName(date) {
     var d = date || new Date();
     var pad = function (n) { return (n < 10 ? '0' : '') + n; };
-    return '당일발주_' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '.xlsx';
+    // 하루에 여러 번 발주해도 파일명이 겹치지 않도록 시각(HHMM)을 붙인다
+    return '당일발주_' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + '.xlsx';
   }
 
   var api = { COLUMNS: COLUMNS, buildWorkbook: buildWorkbook, defaultFileName: defaultFileName };

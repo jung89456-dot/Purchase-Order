@@ -11,6 +11,6 @@
   "devDependencies": {
     "exceljs": "^4.4.0",
     "playwright": "1.56.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "npm:@e965/xlsx@0.20.3"
   }
 }

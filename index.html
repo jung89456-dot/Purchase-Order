@@ -8,43 +8,138 @@
 </head>
 <body>
   <header class="topbar">
-    <h1>발주서 자동 변환기</h1>
-    <span class="version" id="appVersion"></span>
+    <div class="topbar-inner">
+      <h1>발주서 자동 변환기 <span class="version" id="appVersion"></span></h1>
+      <p class="privacy">🔒 주문 정보는 이 컴퓨터(브라우저) 안에서만 처리되며 어디에도 전송되지 않습니다.</p>
+    </div>
   </header>
 
   <main class="container">
-    <p class="lead">스마트스토어·쿠팡 주문 엑셀을 올리면 <strong>당일발주</strong> 양식 엑셀로 변환합니다.</p>
+    <ol class="stepper" aria-label="진행 단계">
+      <li id="stepper-1" class="active">① 주문 파일 올리기</li>
+      <li id="stepper-2">② 품목 고르기</li>
+      <li id="stepper-3">③ 확인 후 다운로드</li>
+    </ol>
 
-    <section class="card" id="step-upload">
-      <h2>1. 주문 파일 업로드</h2>
-      <label class="dropzone" id="dropzone">
-        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" multiple hidden>
-        <span>파일을 끌어다 놓거나 클릭해서 선택하세요 (.xlsx, .xls, .csv)</span>
-      </label>
-      <ul class="file-list" id="fileList"></ul>
+    <!-- 1. 업로드 -->
+    <section class="card" id="step-upload" aria-labelledby="h-upload">
+      <div class="card-head">
+        <h2 id="h-upload">① 주문 파일 올리기</h2>
+        <button type="button" class="link-btn" id="resetBtn" hidden>처음부터 다시</button>
+      </div>
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" multiple class="sr-only" tabindex="-1" aria-hidden="true">
+        <div class="dz-icon" aria-hidden="true">📄</div>
+        <p class="dz-text"><span class="only-desktop">스마트스토어·쿠팡 주문 엑셀을 여기에 끌어다 놓거나</span><span class="only-mobile">아래 버튼을 눌러 주문 엑셀을 고르세요</span></p>
+        <button type="button" class="btn" id="pickBtn">파일 선택</button>
+        <p class="dz-hint">.xlsx · .xls · .csv · 여러 파일 한 번에 가능 · 비밀번호 걸린 파일도 OK</p>
+      </div>
+      <div class="upload-extra">
+        <details class="help">
+          <summary>주문 파일은 어디서 받나요?</summary>
+          <ul>
+            <li><b>스마트스토어</b>: 스마트스토어센터 → 판매관리 → 발주(주문)확인/발송관리 → <b>엑셀다운</b><br><span class="muted">다운로드할 때 정한 비밀번호가 있으면 올린 뒤 입력하면 됩니다.</span></li>
+            <li><b>쿠팡</b>: 쿠팡 Wing → 주문/배송 → 배송관리 → <b>엑셀 다운로드</b></li>
+            <li><b>기타 쇼핑몰</b>: 수취인·상품명·수량·전화번호·주소 열이 있는 엑셀이면 자동으로 인식합니다.</li>
+          </ul>
+        </details>
+        <button type="button" class="link-btn" id="demoBtn">샘플 데이터로 먼저 해보기</button>
+      </div>
+      <p class="busy" id="busy" hidden><span class="spinner" aria-hidden="true"></span> <span id="busyText">파일을 읽는 중…</span></p>
+      <ul class="file-list" id="fileList" aria-live="polite"></ul>
     </section>
 
-    <section class="card" id="step-preview" hidden>
-      <h2>2. 변환 결과 미리보기</h2>
-      <p id="summary"></p>
-      <div class="table-wrap">
-        <table id="previewTable">
-          <thead><tr><th>수취자명</th><th>구입품목</th><th>수량</th><th>전화번호</th><th>주소</th><th>배송메세지</th></tr></thead>
-          <tbody></tbody>
-        </table>
+    <!-- 2. 품목 선택 -->
+    <section class="card" id="step-items" aria-labelledby="h-items">
+      <div class="card-head">
+        <h2 id="h-items">② 발주할 품목 고르기</h2>
+        <div class="head-actions">
+          <button type="button" class="link-btn" id="selectAllBtn">전체 선택</button>
+          <button type="button" class="link-btn" id="selectNoneBtn">전체 해제</button>
+        </div>
+      </div>
+      <p class="muted small">체크한 품목의 주문만 발주서에 들어갑니다. 상품명에 품목 이름이 들어 있으면 자동으로 분류됩니다.</p>
+      <div class="chips" id="itemChips" role="group" aria-label="발주할 품목"></div>
+      <form class="add-item" id="addItemForm">
+        <label for="newItemInput" class="sr-only">추가할 품목 이름</label>
+        <input type="text" id="newItemInput" placeholder="기타 품목 추가 (예: 들기름)" maxlength="30" autocomplete="off">
+        <button type="submit" class="btn secondary">+ 추가</button>
+        <button type="button" class="link-btn" id="restoreCatalogBtn">기본 품목으로 되돌리기</button>
+      </form>
+    </section>
+
+    <!-- 3. 확인 및 다운로드 -->
+    <section class="card" id="step-preview" aria-labelledby="h-preview">
+      <div class="card-head">
+        <h2 id="h-preview">③ 확인 후 다운로드</h2>
+        <label class="toggle"><input type="checkbox" id="showExcluded"> 제외된 주문도 보기</label>
+      </div>
+      <div id="emptyPreview" class="empty">주문 파일을 올리면 여기에 발주서 미리보기가 나타납니다.</div>
+      <div id="previewBody" hidden>
+        <div class="stats" id="stats" aria-live="polite"></div>
+        <p class="muted small">칸을 눌러 내용을 바로 고칠 수 있습니다. 맨 앞 체크를 끄면 그 주문은 발주서에서 빠집니다.</p>
+        <div class="table-wrap" id="tableWrap">
+          <table id="previewTable">
+            <thead>
+              <tr>
+                <th scope="col" class="c-check"><span class="sr-only">발주 포함</span></th>
+                <th scope="col">마켓</th>
+                <th scope="col">품목</th>
+                <th scope="col">수취자명</th>
+                <th scope="col">구입품목</th>
+                <th scope="col" class="c-qty">수량</th>
+                <th scope="col">전화번호</th>
+                <th scope="col">주소</th>
+                <th scope="col">배송메세지</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="scroll-hint only-mobile">← 표를 옆으로 밀어 나머지 칸을 볼 수 있습니다 →</p>
       </div>
     </section>
-
-    <section class="card" id="step-download" hidden>
-      <h2>3. 엑셀 다운로드</h2>
-      <button id="downloadBtn" class="btn">당일발주 엑셀 다운로드</button>
-      <button id="resetBtn" class="btn secondary">초기화</button>
-    </section>
   </main>
+
+  <div class="actionbar" id="actionbar" hidden>
+    <div class="actionbar-inner">
+      <p class="actionbar-text" id="actionText"></p>
+      <button type="button" class="btn primary big" id="downloadBtn">당일발주 엑셀 다운로드</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <dialog id="pwDialog" aria-labelledby="pwTitle">
+    <form method="dialog" id="pwForm">
+      <h3 id="pwTitle">🔑 비밀번호가 걸린 파일입니다</h3>
+      <p><b id="pwFile"></b><br>엑셀을 받을 때 정한 비밀번호를 입력해 주세요.</p>
+      <label for="pwInput" class="sr-only">비밀번호</label>
+      <input type="password" id="pwInput" autocomplete="off" required>
+      <p class="error-text" id="pwError" hidden></p>
+      <p class="muted small">비밀번호는 파일을 여는 데만 쓰이고 저장되지 않습니다.</p>
+      <div class="dialog-actions">
+        <button type="button" class="btn secondary" id="pwSkip">이 파일 건너뛰기</button>
+        <button type="submit" class="btn primary" id="pwOk">열기</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirmDialog" aria-labelledby="confirmTitle">
+    <form method="dialog">
+      <h3 id="confirmTitle"></h3>
+      <div id="confirmBody"></div>
+      <div class="dialog-actions">
+        <button type="submit" value="cancel" class="btn secondary">취소</button>
+        <button type="submit" value="ok" class="btn primary" id="confirmOk">확인</button>
+      </div>
+    </form>
+  </dialog>
 
   <script src="vendor/xlsx.full.min.js"></script>
   <script src="vendor/exceljs.min.js"></script>
   <script src="js/parser.js"></script>
+  <script src="js/decrypt.js"></script>
   <script src="js/exporter.js"></script>
   <script src="js/app.js"></script>
 </body>
