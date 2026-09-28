@@ -170,6 +170,18 @@ body {
 td.bad:empty::before { content: attr(data-hint); color: var(--danger); font-size: 12px; opacity: .85; }
 #previewTable td.bad:empty::before { content: attr(data-hint); }
 .items-summary { display: none; }
+.kbd-hint { display: none; }
+#previewBody:focus-within .kbd-hint { display: inline; }
+.done-box { margin: 8px 0; padding: 10px 14px; border-radius: 8px; background: var(--ok-soft); border: 1px solid #b7e2c8; font-size: 14px; color: #064e2f; }
+.done-box p { margin: 0 0 4px; }
+.done-box ol { margin: 4px 0 6px; padding-left: 20px; }
+.actionbar.done { background: #f3fbf6; }
+.actionbar-btns { display: flex; gap: 8px; align-items: center; }
+.changed-note { color: var(--warn); font-weight: bold; }
+.demo-band { margin: 0; text-align: center; background: #fff4d6; color: #5c3d00; font-size: 13px; padding: 4px 8px; }
+.footer { max-width: 1180px; margin: 0 auto; padding: 0 16px 24px; font-size: 12px; color: var(--muted); }
+.footer .link-btn { font-size: 12px; }
+#demoBtnBig { margin-left: 6px; }
 #h-preview:focus { outline: none; }
 #h-preview:focus-visible { outline: none; }
 code { background: #eef1f5; padding: 0 4px; border-radius: 4px; }
@@ -256,9 +268,11 @@ dialog .btn:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
   .step-mark { display: block; margin: 0 auto 2px; }
   .link-btn { min-height: 40px; }
           .manage-name { width: 100%; }
-  /* 모바일: 주문을 올린 뒤 ② 는 한 줄 요약으로 접기 */
+  /* 모바일: 주문을 올린 뒤 ② 는 한 줄 요약으로 접기 (데스크톱은 핵심 기능이라 펼쳐 둠) */
   #step-items.collapsible .items-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 14px; }
   #step-items.collapsible:not(.open) #itemsBody, #step-items.collapsible:not(.open) .head-actions { display: none; }
+  .actionbar-btns { flex-direction: column-reverse; align-items: stretch; }
+  #demoBtnBig { margin: 8px 0 0; }
   .icon-btn { min-width: 44px; min-height: 44px; }
   .view-tab { flex: 1 1 0; padding: 6px 4px; font-size: 12px; text-align: center; }
   .view-tab b { display: block; font-size: 17px; }

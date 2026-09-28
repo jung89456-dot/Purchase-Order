@@ -135,6 +135,9 @@
 
   function formatPhone(v) { return normalizePhone(v).value; }
 
+  /** 숫자가 8자리 미만이면 전화번호로 쓸 수 없다 */
+  function phoneTooShort(v) { return String(v || '').replace(/\D/g, '').length < 8; }
+
   function parseQty(v) {
     var s = cellText(v).replace(/[,\s개]/g, '');
     if (!/^\d+$/.test(s)) return null;
@@ -180,14 +183,15 @@
   // 지역명만(예산, 구포) 또는 흔한 채소명만(쪽파, 미나리)으로는 분류하지 않는다 — 다른 산지·상품 오분류 방지.
   // 'A+B' 키워드는 A 와 B 가 가까이(사이 3글자 이내) 붙어 있을 때만 일치 (예: '[청도] 미나리', '기장 햇쪽파').
   // 한 글자 조각('갓')은 다른 단어에 너무 쉽게 걸리므로 쓰지 않는다.
+  // '-A' 는 제외 키워드: 상품명에 A 가 있으면 그 품목으로 분류하지 않는다 (예: 곡물 '찰기장', '기장쌀').
   // 키워드는 앱의 '품목 관리'에서 판매자가 직접 고칠 수 있다.
   var DEFAULT_CATALOG = [
     { name: '수제비', keywords: ['수제비'] },
     { name: '칼국수', keywords: ['칼국수'] },
     { name: '구포국수', keywords: ['구포국수', '구포+국수', '구포+소면'] },
     { name: '예산국수', keywords: ['예산국수', '예산+국수'] },
-    { name: '기장 쪽파', keywords: ['기장쪽파', '기장+쪽파'] },
-    { name: '여수 돌산갓', keywords: ['돌산갓', '여수+돌산'] },
+    { name: '기장 쪽파', keywords: ['기장쪽파', '기장+쪽파', '-찰기장', '-기장쌀'] },
+    { name: '여수 돌산갓', keywords: ['돌산갓'] },
     { name: '청도 미나리', keywords: ['청도미나리', '한재미나리', '청도+미나리'] },
     { name: '곡물면', keywords: ['곡물면', '곡물국수'] }
   ];
@@ -195,9 +199,15 @@
   function keywordsOf(entry) {
     if (!entry) return [];
     var list = Array.isArray(entry.keywords) ? entry.keywords : String(entry.keywords || '').split(',');
-    var ks = list.map(norm).filter(function (k) { return k.replace(/\+/g, ''); });
+    var ks = list.map(norm).filter(function (k) { return k.replace(/[+-]/g, '') && k.charAt(0) !== '-'; });
     if (ks.indexOf(norm(entry.name)) === -1) ks.unshift(norm(entry.name));
     return ks;
+  }
+
+  function excludesOf(entry) {
+    if (!entry) return [];
+    var list = Array.isArray(entry.keywords) ? entry.keywords : String(entry.keywords || '').split(',');
+    return list.map(norm).filter(function (k) { return k.charAt(0) === '-' && k.length > 1; }).map(function (k) { return k.slice(1); });
   }
 
   var COMBO_GAP = 3;
@@ -240,6 +250,7 @@
     var t = norm(text), best = '', bestLen = 0, matches = [], hits = {};
     (catalog || []).forEach(function (entry) {
       if (!entry || !entry.name) return;
+      if (excludesOf(entry).some(function (x) { return t.indexOf(x) !== -1; })) return;
       var hit = 0, hitKeys = [];
       keywordsOf(entry).forEach(function (k) {
         var len = matchLen(t, k);
@@ -319,6 +330,7 @@
       if (!name) issues.push('name');
       if (!product) issues.push('item');
       if (!ph.value) issues.push('phone');
+      else if (phoneTooShort(ph.value)) issues.push('phone-short');
       else if (!ph.valid) issues.push('phone-format');
       if (!address) issues.push('address');
 
@@ -374,12 +386,13 @@
   }
 
   var ISSUE_LABEL = {
-    name: '수취자명 없음', item: '품목 없음', phone: '전화번호 없음', 'phone-format': '전화번호 형식 확인',
+    name: '수취자명 없음', item: '품목 없음', phone: '전화번호 없음', 'phone-short': '전화번호가 너무 짧음', 'phone-format': '전화번호 형식 확인',
     address: '주소 없음', qty: '수량 오류', 'qty-default': '수량 없음 → 1로 입력',
-    'dup-suspect': '같은 주문이 또 있음(확인)', ambiguous: '여러 품목에 해당(품목 확인)'
+    'dup-suspect': '같은 주문이 또 있음(확인)', ambiguous: '여러 품목에 해당(품목 확인)',
+    'history-suspect': '지난 발주와 내용이 같음(확인)'
   };
   // 다운로드 전 확인이 필요한 심각한 문제
-  var BLOCKING = { name: 1, item: 1, phone: 1, address: 1, qty: 1 };
+  var BLOCKING = { name: 1, item: 1, phone: 1, 'phone-short': 1, address: 1, qty: 1 };
 
   var api = {
     OUTPUT_COLUMNS: OUTPUT_COLUMNS,
@@ -394,6 +407,7 @@
     detectMarket: detectMarket,
     normalizePhone: normalizePhone,
     formatPhone: formatPhone,
+    phoneTooShort: phoneTooShort,
     parseQty: parseQty,
     buildItem: buildItem,
     excludeReason: excludeReason,

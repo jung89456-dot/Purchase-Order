@@ -34,6 +34,7 @@
         <p class="dz-text"><span class="only-desktop">스마트스토어·쿠팡 주문 엑셀을 여기에 끌어다 놓거나</span><span class="only-mobile">아래 버튼을 눌러 주문 엑셀을 고르세요</span></p>
         <p class="dz-compact-text"><span class="only-desktop">파일을 더 끌어다 놓거나</span></p>
         <button type="button" class="btn" id="pickBtn">파일 선택</button>
+        <button type="button" class="btn secondary" id="demoBtnBig" hidden>처음이라면: 샘플 데이터로 먼저 해보기</button>
         <p class="dz-hint">.xlsx · .xls · .csv 파일을 여러 개 한 번에 올릴 수 있고, 비밀번호가 걸린 파일도 열 수 있습니다.</p>
       </div>
       <div class="upload-extra" id="uploadExtra">
@@ -99,7 +100,15 @@
         <div class="view-tabs" id="viewTabs" role="tablist" aria-label="보기"></div>
         <p class="sr-only" id="srStatus" aria-live="polite"></p>
         <div class="notice-box" id="excludeNotice" hidden></div>
-        <p class="muted small table-help">칸을 누르면 바로 고칠 수 있고, 맨 앞 체크를 끄면 그 주문은 빠집니다.<span class="only-desktop"> (키보드: 방향키 이동 · Enter 고치기 · Esc 취소)</span></p>
+        <div class="done-box" id="doneBox" hidden>
+          <p><b>✅ 발주서를 저장했습니다. 다음 할 일</b></p>
+          <ol>
+            <li>받은 <b>당일발주 엑셀</b>을 공급처에 보내기</li>
+            <li>스마트스토어·쿠팡에서 이 주문들을 <b>발주확인(발송처리)</b> 하기 — 그래야 내일 받는 파일에 다시 나오지 않습니다</li>
+          </ol>
+          <p class="muted small">같은 주문이 내일 다시 들어오면 ‘지난 발주에 있음’으로 자동으로 빠집니다.</p>
+        </div>
+        <p class="muted small table-help">칸을 누르면 바로 고칠 수 있고, 맨 앞 체크를 끄면 그 주문은 빠집니다.<span class="kbd-hint"> (키보드: 방향키 이동 · Enter 고치기 · Esc 취소)</span></p>
         <div class="table-wrap" id="tableWrap" role="tabpanel">
           <table id="previewTable" role="grid" aria-label="발주서 미리보기">
             <thead>
@@ -123,11 +132,20 @@
   </main>
 
   <div class="actionbar" id="actionbar" hidden>
+    <p class="demo-band" id="demoBand" hidden>🧪 지금은 <b>샘플 데이터</b>입니다. 받은 파일 이름에 ‘샘플_’이 붙습니다.</p>
     <div class="actionbar-inner">
       <p class="actionbar-text" id="actionText"></p>
-      <button type="button" class="btn primary big" id="downloadBtn">당일발주 엑셀 다운로드</button>
+      <div class="actionbar-btns">
+        <button type="button" class="btn secondary" id="newStartBtn" hidden>새로 시작</button>
+        <button type="button" class="btn primary big" id="downloadBtn">당일발주 엑셀 다운로드</button>
+      </div>
     </div>
   </div>
+
+  <footer class="footer">
+    <p>주문 정보는 이 브라우저 밖으로 나가지 않습니다. 중복 발주를 막기 위해 최근 14일 동안 받은 주문을 <b>원래 내용으로 되돌릴 수 없게 바꾼 식별값(해시)</b>만 이 브라우저에 남깁니다.
+      <button type="button" class="link-btn" id="clearHistoryBtn">발주 기록 지우기</button></p>
+  </footer>
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden><span id="toastText"></span><button type="button" class="toast-action" id="toastAction" hidden></button></div>
 

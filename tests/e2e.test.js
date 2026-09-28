@@ -125,7 +125,7 @@ test('잘못된 파일은 친절한 안내, 키보드로 파일 선택 가능', 
 
 test('품목 추가 → 분류되어 포함, 삭제는 되돌리기 가능', async () => {
   await withPage(async (page) => {
-    await page.click('#demoBtn');
+    await page.click('#demoBtnBig');
     await page.click('#selectNoneBtn');
     assert.strictEqual(await included(page), 0);
     await page.click('#manageBtn');
@@ -147,7 +147,7 @@ test('품목 추가 → 분류되어 포함, 삭제는 되돌리기 가능', asy
 
 test('샘플은 실제 파일을 올리면 자동으로 사라짐', async () => {
   await withPage(async (page) => {
-    await page.click('#demoBtn');
+    await page.click('#demoBtnBig');
     assert.strictEqual(await page.evaluate(() => window.__po.state.files[0].demo), true);
     await upload(page, [sample('쿠팡_주문샘플.xlsx')]);
     await page.waitForFunction(() => window.__po.state.files.length === 1 && !window.__po.state.files[0].demo && !window.__po.state.busy);
@@ -178,7 +178,7 @@ test('다른 파일의 취소가 반영되고, 같은 파일 안의 같은 내�
 
 test('표 방향키 이동 · Enter 로 편집 · 되돌리기', async () => {
   await withPage(async (page) => {
-    await page.click('#demoBtn');
+    await page.click('#demoBtnBig');
     await page.focus('#previewTable tbody td[tabindex="0"]');
     assert.strictEqual(await page.evaluate(() => document.activeElement.dataset.col), 'name');
     await page.keyboard.press('ArrowRight');
@@ -206,7 +206,7 @@ const mkXlsx = (rows) => {
 
 test('품목 메뉴: 키보드로 바꾸고, 체크 안 된 품목이면 빠진다는 안내', async () => {
   await withPage(async (page) => {
-    await page.click('#demoBtn');
+    await page.click('#demoBtnBig');
     await page.focus('#previewTable tbody td[tabindex="0"]');
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('ArrowRight');
@@ -226,7 +226,7 @@ test('품목 메뉴: 키보드로 바꾸고, 체크 안 된 품목이면 빠진�
 
 test('편집 중 Tab 은 저장 후 옆 칸으로', async () => {
   await withPage(async (page) => {
-    await page.click('#demoBtn');
+    await page.click('#demoBtnBig');
     await page.click('#previewTable tbody tr:first-child td[data-col="name"]');
     await page.keyboard.type('님');
     await page.keyboard.press('Tab');
@@ -237,7 +237,7 @@ test('편집 중 Tab 은 저장 후 옆 칸으로', async () => {
 
 test('직접 지정한 품목을 삭제하면 자동 분류로 돌아가고 되돌리기로 복구', async () => {
   await withPage(async (page) => {
-    await page.click('#demoBtn');
+    await page.click('#demoBtnBig');
     // 들기름(기타) 주문을 칼국수로 직접 지정
     await page.evaluate(() => { const r = window.__po.state.rows.find((x) => x.name === '한지우'); r.categoryManual = '칼국수'; });
     await page.click('#manageBtn');
@@ -325,7 +325,7 @@ test('샘플 2개 파일은 점검창 없이 바로 다운로드 (기타 제외�
 
 test('품목 메뉴는 표 밖에 떠서 잘리지 않음', async () => {
   await withPage(async (page) => {
-    await page.click('#demoBtn');
+    await page.click('#demoBtnBig');
     await page.click('#previewTable tbody tr:last-child .cat-tag');
     const box = await page.evaluate(() => {
       const m = document.querySelector('.cat-menu');
@@ -369,5 +369,90 @@ test('탭은 방향키로 이동, 빈 필수 칸에는 안내 문구', async () 
     await page.focus('#tab-included');
     await page.keyboard.press('ArrowRight');
     assert.strictEqual(await page.evaluate(() => [window.__po.state.view, document.activeElement.id].join()), 'check,tab-check');
+  });
+});
+
+test('여러 날 중복: 어제 받은 주문이 오늘 다시 오면 기본으로 빠짐 (기록 지우기 가능)', async () => {
+  const browser = await chromium.launch({ env: { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' } });
+  try {
+    const ctx = await browser.newContext({ acceptDownloads: true });
+    const page = await ctx.newPage();
+    await page.goto(url);
+    await upload(page, [sample('스마트스토어_주문샘플.xlsx')]);
+    await page.waitForFunction(() => window.__po.state.files.length === 1 && !window.__po.state.busy);
+    const [d] = await Promise.all([page.waitForEvent('download'), page.click('#downloadBtn')]);
+    assert.match(d.suggestedFilename(), /^당일발주_/);
+    // 완료 상태: 다음 할 일 + 다시 받기/새로 시작
+    assert.ok(await page.locator('#doneBox').isVisible());
+    assert.strictEqual((await page.textContent('#downloadBtn')).trim(), '다시 받기');
+    const hist = await page.evaluate(() => localStorage.getItem('po.history.v1'));
+    assert.ok(hist && !hist.includes('김하늘') && !hist.includes('2026092812345'), '해시만 저장');
+    // 고치면 '받은 뒤 내용이 바뀌었습니다'
+    await page.click('#previewTable tbody tr:first-child td[data-col="memo"]');
+    await page.keyboard.type('!');
+    await page.keyboard.press('Enter');
+    assert.match(await page.textContent('#actionText'), /바뀌었습니다/);
+
+    // 다음 날(새로 연 페이지)에 같은 파일 → 전부 '지난 발주에 있음'
+    const page2 = await ctx.newPage();
+    await page2.goto(url);
+    await upload(page2, [sample('스마트스토어_주문샘플.xlsx')]);
+    await page2.waitForFunction(() => window.__po.state.files.length === 1 && !window.__po.state.busy);
+    assert.strictEqual(await included(page2), 0);
+    assert.match(await page2.textContent('#excludeNotice'), /지난 발주에 이미 넣은 주문 4건/);
+    // 기록 지우기
+    await page2.click('#clearHistoryBtn');
+    await page2.click('#confirmOk');
+    await page2.waitForFunction(() => window.__po.state.rows.filter((r) => r.included).length === 4);
+
+    // 고친 뒤 다시 받기 → 완료 상태 → '새로 시작' 후 같은 파일을 다시 올려도 걸러짐
+    await Promise.all([page.waitForEvent('download'), page.click('#downloadBtn')]);
+    await page.click('#newStartBtn');
+    await upload(page, [sample('쿠팡_주문샘플.xlsx'), sample('스마트스토어_주문샘플.xlsx')]);
+    await page.waitForFunction(() => window.__po.state.files.length === 2 && !window.__po.state.busy);
+    const ss = await page.evaluate(() => window.__po.state.rows.filter((r) => r.source === '스마트스토어' && r.included).length);
+    assert.strictEqual(ss, 0);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('샘플 상태에서는 파일 이름에 샘플_ 이 붙고 기록에 남지 않음', async () => {
+  await withPage(async (page) => {
+    await page.click('#demoBtnBig');
+    assert.ok(await page.locator('#demoBand').isVisible());
+    assert.strictEqual((await page.textContent('#downloadBtn')).trim(), '샘플 발주서 받아보기');
+    const [d] = await Promise.all([page.waitForEvent('download'), page.click('#downloadBtn')]);
+    assert.match(d.suggestedFilename(), /^샘플_당일발주_/);
+    assert.strictEqual(await page.evaluate(() => localStorage.getItem('po.history.v1')), null);
+    assert.ok(await page.locator('#doneBox').isHidden());
+  });
+});
+
+test('세트 상품이 대표 품목 해제로 빠지면 확인 필요·점검창에 나옴, 짧은 전화번호는 차단', async () => {
+  const rows = [['수취인명', '상품명', '수량', '전화번호', '주소'],
+    ['가', '칼국수+수제비 세트', 1, '01011112222', '서울'],
+    ['나', '생칼국수', 1, '12345', '부산']];
+  await withPage(async (page) => {
+    await upload(page, [{ name: 'set.xlsx', mimeType: T, buffer: mkXlsx(rows) }]);
+    await page.waitForFunction(() => window.__po.state.files.length === 1 && !window.__po.state.busy);
+    await chip(page, '수제비').uncheck();
+    assert.match(await page.textContent('#tab-check'), /2/);
+    await page.click('#downloadBtn');
+    await page.waitForSelector('#confirmDialog[open]');
+    const t = await page.textContent('#confirmBody');
+    assert.match(t, /여러 품목에 걸려 빠진 주문 1건/);
+    assert.match(t, /전화번호가 너무 짧음/);
+  });
+});
+
+test('열린 품목 메뉴의 태그를 다시 누르면 닫힘', async () => {
+  await withPage(async (page) => {
+    await page.click('#demoBtnBig');
+    const tag = page.locator('#previewTable tbody tr:first-child .cat-tag');
+    await tag.click();
+    await page.waitForSelector('.cat-menu');
+    await tag.click();
+    assert.strictEqual(await page.locator('.cat-menu').count(), 0);
   });
 });

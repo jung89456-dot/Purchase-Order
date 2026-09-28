@@ -148,6 +148,18 @@ test('조합 키워드는 가까이 붙어 있을 때만 — 다른 상품 오�
   assert.deepStrictEqual(P.classifyText('구포시장 칼국수', cat).matches, ['칼국수']);
 });
 
+test('제외 키워드(-A)와 짧은 전화번호', () => {
+  const cat = P.DEFAULT_CATALOG;
+  assert.strictEqual(P.classify('찰기장 쪽파전 믹스', cat), '');
+  assert.strictEqual(P.classify('기장쌀 쪽파', cat), '');
+  assert.strictEqual(P.classify('여수 돌산공원 멸치', cat), '');
+  assert.strictEqual(P.classify('기장 쪽파 1단', cat), '기장 쪽파');
+  assert.strictEqual(P.classify('돌산갓 김치', [{ name: '여수 돌산갓', keywords: ['돌산갓', '-김치'] }]), '');
+  const r = P.convertSheet([['수취인명', '상품명', '수량', '전화번호', '주소'], ['가', '칼국수', 1, '12345', '서울']]);
+  assert.deepStrictEqual(r.rows[0].issues, ['phone-short']);
+  assert.ok(P.BLOCKING['phone-short']);
+});
+
 test('이미 발송된 주문 제외, +82 번호 정규화', () => {
   assert.strictEqual(P.excludeReason(['배송완료']), '배송완료');
   assert.ok(P.isShippedStatus('구매확정'));
