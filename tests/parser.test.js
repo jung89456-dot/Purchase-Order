@@ -204,7 +204,7 @@ test('품목 입력: 수제비+칼국수 는 함께 주문한 조합', () => {
   assert.strictEqual(P.classify('감자 수제비', cat), '수제비');
 });
 
-test('참고 데이터: 머리글 찾기, 조건(쉼표=또는, 띄어쓰기=그리고, 열:값, -제외), 고객 열', () => {
+test('추가 데이터: 머리글 찾기, 조건(쉼표=또는, 띄어쓰기=그리고, 열:값, -제외), 고객 열', () => {
   const t = P.parseDataTable([['단골고객 명단'], [], ['고객명', '연락처', '지역', '등급', '메모'],
     ['김하늘', '010-1234-5678', '서울', 'VIP', ''], ['박서연', '0504-1111-2222', '경기', '일반', '탈퇴'], ['', '', '', '', ''], ['최민준', 1022223333, '대구', 'VIP', '']]);
   assert.deepStrictEqual(t.headers, ['고객명', '연락처', '지역', '등급', '메모']);
@@ -216,6 +216,7 @@ test('참고 데이터: 머리글 찾기, 조건(쉼표=또는, 띄어쓰기=그
   assert.deepStrictEqual(pick('등급:일반, 대구'), ['박서연', '최민준']);
   assert.deepStrictEqual(pick('-탈퇴'), ['김하늘', '최민준']);
   assert.deepStrictEqual(P.unknownQueryColumns(t, P.parseDataQuery('없는열:1')), ['없는열']);
+  assert.deepStrictEqual(P.unmatchedGroups(t, P.parseDataQuery('김하늘, 박민수')), ['박민수']);
   assert.deepStrictEqual(P.customerColumns(t.headers), { phone: 1, name: 0 });
   assert.strictEqual(P.phoneDigits(t.rows[2][1]), '01022223333');
 });

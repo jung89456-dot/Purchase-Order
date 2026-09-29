@@ -387,7 +387,7 @@
    * 예) '서울 VIP, 등급:골드, -탈퇴'
    */
   function parseDataQuery(text) {
-    var groups = [], exclude = [];
+    var groups = [], exclude = [], labels = [];
     String(text || '').split(/[,，、;\n]+/).forEach(function (chunk) {
       var conds = [];
       chunk.trim().split(/\s+/).filter(Boolean).forEach(function (w) {
@@ -398,9 +398,17 @@
         if (!cond.value) return;
         if (neg) exclude.push(cond); else conds.push(cond);
       });
-      if (conds.length) groups.push(conds);
+      if (conds.length) { groups.push(conds); labels.push(chunk.trim()); }
     });
-    return { groups: groups, exclude: exclude };
+    return { groups: groups, exclude: exclude, labels: labels };
+  }
+
+  /** 적은 조건(쉼표로 나눈 것) 중 한 행도 찾지 못한 것 */
+  function unmatchedGroups(table, query) {
+    return query.groups.map(function (g, gi) {
+      var hit = table.rows.some(function (row) { return g.every(function (c) { return condHit(row, table.headers, c); }); });
+      return hit ? null : query.labels[gi];
+    }).filter(Boolean);
   }
 
   function findCol(headers, name) {
@@ -564,6 +572,7 @@
     parseDataTable: parseDataTable,
     parseDataQuery: parseDataQuery,
     filterDataRows: filterDataRows,
+    unmatchedGroups: unmatchedGroups,
     unknownQueryColumns: unknownQueryColumns,
     customerColumns: customerColumns,
     phoneDigits: phoneDigits,

@@ -41,7 +41,7 @@ const samples = ['스마트스토어_주문샘플.xlsx', '쿠팡_주문샘플.xl
           buffer: fs.readFileSync(path.join(ROOT, 'samples', '단골고객_샘플.xlsx')),
         }]);
         await page.waitForSelector('#dataBody:not([hidden])');
-        await page.fill('#dataQuery', '등급:VIP -탈퇴');
+        await page.fill('#dataQuery', '김하늘, 문지호');
         await page.press('#dataQuery', 'Enter');
         await page.locator('#step-data').screenshot({ path: path.join(outDir, `${version}-data.png`) });
         await page.locator('#step-preview').screenshot({ path: path.join(outDir, `${version}-preview.png`) });

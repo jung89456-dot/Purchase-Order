@@ -115,30 +115,31 @@
         </div>
       </div>
     </section>
-    <!-- 4. 참고 데이터 발췌 (발주서와 별개) -->
+    <!-- 4. 추가 데이터 -->
     <section class="card" id="step-data" aria-labelledby="h-data">
       <div class="card-head">
-        <h2 id="h-data">④ 참고 데이터 발췌 <span class="muted small">(선택 · 발주서와 별개)</span></h2>
+        <h2 id="h-data">④ 추가 데이터 <span class="muted small">(선택)</span></h2>
         <button type="button" class="link-btn" id="dataClear" hidden>데이터 지우기</button>
       </div>
-      <p class="muted small">단골고객 리스트처럼 따로 가진 엑셀을 넣고, 필요한 내용만 뽑아 볼 수 있습니다. 넣은 데이터는 이 브라우저에만 저장되어 다음에 열어도 남아 있습니다.</p>
+      <p class="muted small">단골리스트 같은 엑셀을 올리고 필요한 고객 이름을 적으면, 그 고객의 내용이 발주서 엑셀에 함께 들어갑니다. 올린 데이터는 이 브라우저에만 저장되어 다음에 열어도 남아 있습니다.</p>
       <div class="data-drop" id="dataDrop">
         <input type="file" id="dataInput" accept=".xlsx,.xls,.csv,.txt" class="sr-only" tabindex="-1" aria-hidden="true">
-        <button type="button" class="btn secondary" id="dataPick">데이터 파일 선택</button>
-        <span class="muted small" id="dataInfo">단골고객 리스트 등 (.xlsx · .xls · .csv)</span>
+        <button type="button" class="btn secondary" id="dataPick">추가 데이터 올리기</button>
+        <span class="muted small" id="dataInfo">단골리스트 등 (.xlsx · .xls · .csv)</span>
       </div>
       <div id="dataBody" hidden>
-        <label for="dataQuery" class="term-label">무엇을 뽑을까요?</label>
+        <label for="dataQuery" class="term-label">필요한 내용 (고객 이름 등)</label>
         <div class="term-row">
-          <input type="text" id="dataQuery" class="term-input" placeholder="예: VIP, 서울  /  등급:VIP  /  비워 두면 전체" autocomplete="off" spellcheck="false" aria-describedby="dataHelp">
+          <input type="text" id="dataQuery" class="term-input" placeholder="예: 김하늘, 문지호" autocomplete="off" spellcheck="false" aria-describedby="dataHelp">
+          <button type="button" class="btn secondary" id="dataQueryClear" hidden>지우기</button>
         </div>
-        <p class="muted small" id="dataHelp">쉼표(,)는 ‘또는’, 띄어쓰기는 ‘그리고’입니다. <code>등급:VIP</code>처럼 쓰면 그 열에서만 찾고, <code>-탈퇴</code>처럼 앞에 -를 붙이면 뺍니다.</p>
-        <label class="toggle-row"><input type="checkbox" id="dataMatchOrders"> 오늘 올린 주문과 겹치는 고객만 (전화번호, 없으면 이름으로 대조)</label>
-        <div class="col-chips" id="dataCols" role="group" aria-label="보여줄 열"></div>
+        <p class="muted small" id="dataHelp">쉼표(,)로 여러 명을 적을 수 있습니다. 적은 글자가 들어 있는 행을 찾습니다. <code>등급:VIP</code>처럼 쓰면 그 열에서만 찾습니다.</p>
+        <label class="toggle-row"><input type="checkbox" id="dataWithOrder" checked> 발주서 엑셀에 함께 넣기 (‘추가 데이터’ 시트)</label>
         <p class="data-summary" id="dataSummary" aria-live="polite"></p>
+        <div class="col-chips" id="dataCols" role="group" aria-label="넣을 열"></div>
         <div class="table-wrap data-wrap"><table id="dataTable"><thead></thead><tbody></tbody></table></div>
         <div class="data-actions">
-          <button type="button" class="btn" id="dataDownload">뽑은 데이터 엑셀로 받기</button>
+          <button type="button" class="btn secondary" id="dataDownload">이 내용만 엑셀로 받기</button>
         </div>
       </div>
     </section>

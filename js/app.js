@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v9';
+  var APP_VERSION = 'v10';
   var HISTORY_KEY = 'po.history.v1'; // 지난 발주 기록 (주문 키의 해시만 저장)
   var USED_KEY = 'po.used';
   var HISTORY_DAYS = 14;
@@ -618,7 +618,7 @@
     cb.addEventListener('change', function () { setIncluded(tr, r, cb.checked); });
     tdc.appendChild(cb);
     tdc.appendChild(el('span', { className: 'mk ' + r.market, title: r.source, 'aria-label': r.source }, r.market === 'smartstore' ? 'N' : r.market === 'coupang' ? 'C' : '·'));
-    tdc.appendChild(el('span', { className: 'star', title: '참고 데이터에 있는 고객', 'aria-label': '참고 데이터에 있는 고객' }, '★'));
+    tdc.appendChild(el('span', { className: 'star', title: '추가 데이터에 있는 고객', 'aria-label': '추가 데이터에 있는 고객' }, '★'));
     tr.appendChild(tdc);
 
     EDIT_FIELDS.forEach(function (f) {
@@ -811,7 +811,7 @@
     tr.className = r.included ? '' : 'excluded';
     var star = tr.querySelector('.star');
     star.hidden = !(r.refIdx >= 0);
-    if (r.refIdx >= 0) star.title = '참고 데이터(' + ref.name + ')에 있는 고객';
+    if (r.refIdx >= 0) star.title = '추가 데이터(' + ref.name + ')에 있는 고객';
     tr.querySelector('.c-check input').checked = r.included;
     var tag = tr.querySelector('.cat-tag');
     var catLabel = r.category || (state.catalog.length ? '해당 없음' : '전체');
@@ -893,7 +893,7 @@
     inc.forEach(function (r) { byMarket[r.source] = (byMarket[r.source] || 0) + 1; });
     var stars = inc.filter(function (r) { return r.refIdx >= 0; }).length;
     $('marketLine').textContent = Object.keys(byMarket).map(function (m) { return m + ' ' + byMarket[m] + '건'; }).join(' · ') +
-      (stars ? ' · ★ 참고 데이터 고객 ' + stars + '건' : '') + (edited ? ' · 고친 주문 ' + edited + '건' : '');
+      (stars ? ' · ★ 추가 데이터 고객 ' + stars + '건' : '') + (edited ? ' · 고친 주문 ' + edited + '건' : '');
 
     renderExcludeNotice(out);
 
@@ -917,6 +917,8 @@
         txt.appendChild(document.createTextNode(' · '));
         txt.appendChild(el('span', { className: 'warn-text' }, '빨간 칸 ' + problems + '건 확인 필요'));
       }
+      var extraNow = refExtra();
+      if (extraNow) txt.appendChild(document.createTextNode(' · 추가 데이터 ' + extraNow.rows.length + '행 함께'));
       if (ld && inc.length) txt.appendChild(el('span', { className: 'changed-note' }, ' · 받은 뒤 내용이 바뀌었습니다 — 다시 받아 주세요'));
     }
     var demoOnly = isDemoOnly();
@@ -1214,7 +1216,8 @@
     var str = rows.map(function (r) { return [r.uid].concat(EDIT_FIELDS.map(function (f) { return fmt(r[f]); })).join('\u0001'); }).join('\u0002');
     var h = 5381;
     for (var i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
-    return rows.length + ':' + h;
+    var extra = refExtra();
+    return rows.length + ':' + h + (extra ? ':' + extra.rows.length + ':' + ref.query : '');
   }
 
   function download() {
@@ -1237,7 +1240,8 @@
       btn.disabled = true;
       var demo = isDemoOnly();
       var fileName = (demo ? '샘플_' : '') + POExporter.defaultFileName();
-      return POExporter.buildWorkbook(ExcelJS, rows).xlsx.writeBuffer().then(function (buf) {
+      var extra = refExtra();
+      return POExporter.buildWorkbook(ExcelJS, rows, extra).xlsx.writeBuffer().then(function (buf) {
         var blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         return saveFile(blob, fileName);
       }).then(function (saved) {
@@ -1245,7 +1249,7 @@
         if (!demo) recordHistory(rows);
         state.lastDownload = { name: fileName, count: rows.length, sig: contentSig(rows), demo: demo };
         renderStats();
-        toast('✅ ' + fileName + ' (' + rows.length + '건) 저장했습니다.');
+        toast('✅ ' + fileName + ' (' + rows.length + '건' + (extra ? ' + 추가 데이터 ' + extra.rows.length + '행' : '') + ') 저장했습니다.');
       }).catch(function (e) {
         toast('엑셀을 저장하지 못했습니다: ' + (e && e.message || e));
       }).then(function () { btn.disabled = false; });
@@ -1293,12 +1297,12 @@
     $('h-preview').focus({ preventScroll: true });
   }
 
-  /* ---------------- ④ 참고 데이터 (단골고객 리스트 등) ---------------- */
+  /* ---------------- ④ 추가 데이터 (단골리스트 등) ---------------- */
 
   var REF_KEY = 'po.refdata.v1';
   var REF_QUERY_KEY = 'po.refquery.v1';
   var REF_PREVIEW = 200;
-  var ref = { name: '', headers: [], rows: [], hidden: {}, query: '', matchOrders: false, saved: true, cols: { phone: -1, name: -1 }, index: null };
+  var ref = { name: '', headers: [], rows: [], hidden: {}, query: '', withOrder: true, saved: true, cols: { phone: -1, name: -1 }, index: null };
 
   function loadRef() {
     try {
@@ -1308,12 +1312,12 @@
         ref.headers = d.headers.map(String);
         ref.rows = d.rows.filter(Array.isArray).map(function (r) { return r.map(function (v) { return v == null ? '' : String(v); }); });
         ref.hidden = d.hidden && typeof d.hidden === 'object' ? d.hidden : {};
-        ref.matchOrders = d.matchOrders === true;
+        ref.withOrder = d.withOrder !== false;
       }
       ref.query = localStorage.getItem(REF_QUERY_KEY) || '';
     } catch (e) { /* 저장된 데이터가 없거나 읽을 수 없으면 빈 상태로 */ }
     $('dataQuery').value = ref.query;
-    $('dataMatchOrders').checked = ref.matchOrders;
+    $('dataWithOrder').checked = ref.withOrder;
     buildRefIndex();
   }
 
@@ -1321,7 +1325,7 @@
     try {
       localStorage.setItem(REF_QUERY_KEY, ref.query);
       if (ref.rows.length) {
-        localStorage.setItem(REF_KEY, JSON.stringify({ name: ref.name, headers: ref.headers, rows: ref.rows, hidden: ref.hidden, matchOrders: ref.matchOrders }));
+        localStorage.setItem(REF_KEY, JSON.stringify({ name: ref.name, headers: ref.headers, rows: ref.rows, hidden: ref.hidden, withOrder: ref.withOrder }));
       } else {
         localStorage.removeItem(REF_KEY);
       }
@@ -1341,7 +1345,7 @@
     ref.index = { phones: phones, names: names };
   }
 
-  // 주문이 참고 데이터에 있는 고객인지: 전화번호로 대조, 데이터에 전화번호 열이 없으면 이름으로
+  // 주문이 추가 데이터에 있는 고객인지: 전화번호로 대조, 데이터에 전화번호 열이 없으면 이름으로
   function refMatch(r) {
     if (!ref.rows.length || !ref.index) return -1;
     if (ref.cols.phone >= 0) {
@@ -1359,15 +1363,24 @@
     return ref.headers.map(function (_, i) { return i; }).filter(function (i) { return !ref.hidden[ref.headers[i]]; });
   }
 
+  // 적은 내용(고객 이름 등)에 해당하는 행. 아무것도 적지 않으면 없음 (명단 전체가 발주서에 섞이지 않게)
   function refResult() {
     var q = P.parseDataQuery(ref.query);
-    var idx = P.filterDataRows(ref, q);
-    if (ref.matchOrders) {
-      var hit = {};
-      state.rows.forEach(function (r) { if (r.refIdx >= 0) hit[r.refIdx] = true; });
-      idx = idx.filter(function (i) { return hit[i]; });
-    }
-    return { idx: idx, unknown: P.unknownQueryColumns(ref, q) };
+    if (!q.groups.length) return { idx: [], unknown: [], missing: [], empty: true };
+    return { idx: P.filterDataRows(ref, q), unknown: P.unknownQueryColumns(ref, q), missing: P.unmatchedGroups(ref, q), empty: false };
+  }
+
+  // 발주서 엑셀에 함께 넣을 추가 데이터 (없으면 null)
+  function refExtra() {
+    if (!ref.withOrder || !ref.rows.length) return null;
+    var res = refResult();
+    var vis = refVisibleCols();
+    if (!res.idx.length || !vis.length) return null;
+    return {
+      title: '추가 데이터',
+      headers: vis.map(function (i) { return ref.headers[i]; }),
+      rows: res.idx.map(function (ri) { return vis.map(function (i) { return ref.rows[ri][i]; }); })
+    };
   }
 
   function renderRef() {
@@ -1375,15 +1388,16 @@
     $('dataBody').hidden = !has;
     $('dataClear').hidden = !has;
     $('dataDrop').classList.toggle('loaded', has);
-    $('dataPick').textContent = has ? '다른 파일로 바꾸기' : '데이터 파일 선택';
+    $('dataPick').textContent = has ? '다른 파일로 바꾸기' : '추가 데이터 올리기';
     $('dataInfo').textContent = has
-      ? ref.name + ' · ' + ref.rows.length + '행 · 열 ' + ref.headers.length + '개' + (ref.saved ? '' : ' · 파일이 커서 저장하지 못했습니다(다음에 다시 넣어 주세요)')
-      : '단골고객 리스트 등 (.xlsx · .xls · .csv)';
+      ? ref.name + ' · ' + ref.rows.length + '행 · 열 ' + ref.headers.length + '개' + (ref.saved ? '' : ' · 파일이 커서 저장하지 못했습니다(다음에 다시 올려 주세요)')
+      : '단골리스트 등 (.xlsx · .xls · .csv)';
+    $('dataQueryClear').hidden = !ref.query;
     if (!has) return;
 
     var cols = $('dataCols');
     cols.innerHTML = '';
-    cols.appendChild(el('span', { className: 'muted small' }, '보여줄 열:'));
+    cols.appendChild(el('span', { className: 'muted small' }, '넣을 열 (눌러서 빼기):'));
     ref.headers.forEach(function (h) {
       var b = el('button', { type: 'button', className: 'col-chip', 'aria-pressed': String(!ref.hidden[h]), title: '눌러서 이 열을 넣거나 뺍니다' }, h);
       b.addEventListener('click', function () { ref.hidden[h] = !ref.hidden[h]; saveRef(); renderRef(); });
@@ -1394,21 +1408,22 @@
     var vis = refVisibleCols();
     var sum = $('dataSummary');
     sum.innerHTML = '';
-    sum.appendChild(el('b', null, res.idx.length + '행'));
-    sum.appendChild(document.createTextNode(' 뽑음 (전체 ' + ref.rows.length + '행)'));
-    var notes = [];
-    if (res.unknown.length) notes.push('‘' + res.unknown.join(', ') + '’ 열이 없습니다. 열 이름: ' + ref.headers.join(', '));
-    if (ref.matchOrders) {
-      if (ref.cols.phone < 0 && ref.cols.name < 0) notes.push('데이터에 전화번호나 이름 열이 없어 주문과 대조할 수 없습니다.');
-      else if (!state.rows.length) notes.push('③ 에 주문 파일을 올리면 겹치는 고객을 찾습니다.');
-      else notes.push('주문과 대조 기준: ' + (ref.cols.phone >= 0 ? '전화번호(' + ref.headers[ref.cols.phone] + ')' : '이름(' + ref.headers[ref.cols.name] + ')'));
+    if (res.empty) {
+      sum.appendChild(document.createTextNode('위 칸에 고객 이름 등을 적으면 해당하는 내용을 찾습니다. (전체 ' + ref.rows.length + '행)'));
+    } else {
+      sum.appendChild(el('b', null, res.idx.length + '행'));
+      sum.appendChild(document.createTextNode(' 찾음' + (ref.withOrder && res.idx.length ? ' → 발주서 엑셀에 함께 들어갑니다' : '')));
     }
+    var notes = [];
+    if (res.missing.length) notes.push('‘' + res.missing.join(', ') + '’은(는) 찾지 못했습니다');
+    if (res.unknown.length) notes.push('‘' + res.unknown.join(', ') + '’ 열이 없습니다. 열 이름: ' + ref.headers.join(', '));
     notes.forEach(function (n) { sum.appendChild(el('span', { className: 'warn-text' }, ' · ' + n)); });
 
     var table = $('dataTable');
     var thead = table.querySelector('thead'), tbody = table.querySelector('tbody');
     thead.innerHTML = '';
     tbody.innerHTML = '';
+    $('dataTable').parentNode.hidden = res.empty;
     var htr = el('tr');
     vis.forEach(function (i) { htr.appendChild(el('th', { scope: 'col' }, ref.headers[i])); });
     thead.appendChild(htr);
@@ -1450,7 +1465,8 @@
         renderLight();
         renderTable();
         renderRef();
-        toast('참고 데이터 ‘' + file.name + '’ ' + ref.rows.length + '행을 넣었습니다.');
+        toast('추가 데이터 ‘' + file.name + '’ ' + ref.rows.length + '행을 올렸습니다. 필요한 고객 이름을 적어 주세요.');
+        $('dataQuery').focus();
       })
       .catch(function (e) {
         setBusy(null);
@@ -1459,36 +1475,16 @@
       });
   }
 
-  function refCellValue(v) {
-    // 금액·수량 같은 숫자는 숫자로, 0으로 시작하는 번호(전화번호 등)는 글자 그대로
-    return /^-?(0|[1-9]\d{0,14})(\.\d+)?$/.test(v) ? Number(v) : v;
-  }
-
   function downloadRef() {
     var res = refResult();
     var vis = refVisibleCols();
     if (!res.idx.length || !vis.length) return;
     var wb = new ExcelJS.Workbook();
-    var ws = wb.addWorksheet('발췌');
-    ws.columns = vis.map(function (i) {
-      var w = ref.headers[i].length * 2 + 4;
-      res.idx.slice(0, 200).forEach(function (ri) { w = Math.max(w, String(ref.rows[ri][i]).length * 1.6 + 2); });
-      return { header: ref.headers[i], key: 'c' + i, width: Math.min(60, Math.max(10, w)) };
-    });
-    var head = ws.getRow(1);
-    head.eachCell(function (cell) {
-      cell.font = { name: '맑은 고딕', size: 11, bold: true };
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF9BC2E6' } };
-      cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
-    });
-    res.idx.forEach(function (ri) {
-      var row = ws.addRow(vis.map(function (i) { return refCellValue(ref.rows[ri][i]); }));
-      row.font = { name: '맑은 고딕', size: 11 };
-    });
+    POExporter.addTableSheet(wb, '추가 데이터', vis.map(function (i) { return ref.headers[i]; }),
+      res.idx.map(function (ri) { return vis.map(function (i) { return ref.rows[ri][i]; }); }));
     var base = ref.name.replace(/\.[^.]+$/, '');
     var stamp = POExporter.defaultFileName().replace(/^당일발주_/, '').replace(/\.xlsx$/, '');
-    var fileName = '발췌_' + base + '_' + stamp + '.xlsx';
+    var fileName = '추가데이터_' + base + '_' + stamp + '.xlsx';
     $('dataDownload').disabled = true;
     wb.xlsx.writeBuffer().then(function (buf) {
       return saveFile(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileName);
@@ -1567,23 +1563,26 @@
   var refTimer;
   $('dataQuery').addEventListener('input', function () {
     clearTimeout(refTimer);
-    refTimer = setTimeout(function () { ref.query = $('dataQuery').value; saveRef(); renderRef(); }, 250);
+    refTimer = setTimeout(function () { ref.query = $('dataQuery').value; saveRef(); renderRef(); renderStats(); }, 250);
   });
   $('dataQuery').addEventListener('keydown', function (e) {
     if (e.key !== 'Enter') return;
     e.preventDefault();
     clearTimeout(refTimer);
-    ref.query = $('dataQuery').value; saveRef(); renderRef();
+    ref.query = $('dataQuery').value; saveRef(); renderRef(); renderStats();
   });
-  $('dataMatchOrders').addEventListener('change', function () { ref.matchOrders = $('dataMatchOrders').checked; saveRef(); renderRef(); });
+  $('dataWithOrder').addEventListener('change', function () { ref.withOrder = $('dataWithOrder').checked; saveRef(); renderRef(); renderStats(); });
+  $('dataQueryClear').addEventListener('click', function () {
+    $('dataQuery').value = ''; ref.query = ''; saveRef(); renderRef(); renderStats(); $('dataQuery').focus();
+  });
   $('dataDownload').addEventListener('click', downloadRef);
   $('dataClear').addEventListener('click', function () {
-    confirmBox('참고 데이터를 지울까요?', [el('p', null, '‘' + ref.name + '’ 데이터를 이 브라우저에서 지웁니다. 발주서에는 영향이 없습니다.')], '지우기')
+    confirmBox('추가 데이터를 지울까요?', [el('p', null, '‘' + ref.name + '’ 데이터를 이 브라우저에서 지웁니다. 주문 목록에는 영향이 없습니다.')], '지우기')
       .then(function (ok) {
         if (!ok) return;
         ref.name = ''; ref.headers = []; ref.rows = []; ref.hidden = {};
         buildRefIndex(); saveRef(); render();
-        toast('참고 데이터를 지웠습니다.');
+        toast('추가 데이터를 지웠습니다.');
       });
   });
 

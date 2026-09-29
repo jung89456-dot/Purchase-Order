@@ -487,7 +487,7 @@ test('여러 품목이 함께 든 주문은 수제비+칼국수 로 표시되고
   });
 });
 
-test('④ 참고 데이터: 단골고객 파일 → 조건으로 뽑기 → 주문과 대조(★) → 엑셀로 받기, 다음에도 남음', async () => {
+test('④ 추가 데이터: 단골리스트 올리고 고객 이름 적기 → 발주서 엑셀에 ‘추가 데이터’ 시트로 함께', async () => {
   const browser = await chromium.launch({ env: { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' } });
   try {
     const ctx = await browser.newContext({ acceptDownloads: true });
@@ -500,34 +500,51 @@ test('④ 참고 데이터: 단골고객 파일 → 조건으로 뽑기 → 주�
     await page.setInputFiles('#dataInput', [sample('단골고객_샘플.xlsx')]);
     await page.waitForSelector('#dataBody:not([hidden])');
     assert.match(await page.textContent('#dataInfo'), /5행/);
-    // 주문과 겹치는 단골: 김하늘(전화 일치), 최민준, 홍길순 → 발주 표에 ★
+    // 이름을 적기 전에는 아무것도 넣지 않음
+    assert.match(await page.textContent('#dataSummary'), /고객 이름 등을 적으면/);
+    // 주문 중 단골에게 ★
     const stars = await page.evaluate(() => window.__po.state.rows.filter((r) => r.refIdx >= 0).map((r) => r.name).sort());
     assert.deepStrictEqual(stars, ['김하늘', '최민준', '홍길순']);
-    assert.match(await page.textContent('#marketLine'), /참고 데이터 고객 3건/);
-    // 조건: VIP 이면서 탈퇴 아님
-    await page.fill('#dataQuery', '등급:VIP -탈퇴');
+    // 고객 이름 적기 (없는 이름은 알려 줌)
+    await page.fill('#dataQuery', '김하늘, 문지호, 박민수');
     await page.press('#dataQuery', 'Enter');
-    assert.match(await page.textContent('#dataSummary'), /3행 뽑음/);
-    await page.check('#dataMatchOrders');
-    assert.match(await page.textContent('#dataSummary'), /2행 뽑음/); // 김하늘, 홍길순
-    // 메모 열 빼고 받기
+    const sum = await page.textContent('#dataSummary');
+    assert.match(sum, /2행 찾음/);
+    assert.match(sum, /‘박민수’은\(는\) 찾지 못했습니다/);
+    assert.match(await page.textContent('#actionText'), /추가 데이터 2행 함께/);
+    // 메모 열은 빼기
     await page.click('#dataCols .col-chip:has-text("메모")');
-    const [d] = await Promise.all([page.waitForEvent('download'), page.click('#dataDownload')]);
-    assert.match(d.suggestedFilename(), /^발췌_단골고객_샘플_\d{8}_\d{4}\.xlsx$/);
-    const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'po-')), 'ref.xlsx');
+    // 발주서 엑셀 받기 → 두 번째 시트
+    const [d] = await Promise.all([page.waitForEvent('download'), page.click('#downloadBtn')]);
+    const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'po-')), 'po.xlsx');
     await d.saveAs(out);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(out);
-    const ws = wb.getWorksheet('발췌');
+    assert.deepStrictEqual(wb.worksheets.map((w) => w.name), ['당일발주', '추가 데이터']);
+    assert.strictEqual(wb.getWorksheet('당일발주').rowCount, 8);
+    const ws = wb.getWorksheet('추가 데이터');
     assert.deepStrictEqual(ws.getRow(1).values.slice(1), ['고객명', '연락처', '지역', '등급', '누적주문']);
-    assert.deepStrictEqual([ws.getCell('A2').value, ws.getCell('A3').value], ['김하늘', '홍길순']);
+    assert.deepStrictEqual([ws.getCell('A2').value, ws.getCell('A3').value], ['김하늘', '문지호']);
     assert.strictEqual(ws.getCell('B2').value, '010-1234-5678');
     assert.strictEqual(ws.getCell('E2').value, 12);
-    // 다시 열어도 데이터·조건이 남아 있음
+    assert.strictEqual(ws.getCell('A1').fill.fgColor.argb, 'FF9BC2E6');
+    // 함께 넣기를 끄면 발주서만
+    await page.uncheck('#dataWithOrder');
+    assert.doesNotMatch(await page.textContent('#actionText'), /추가 데이터/);
+    const [d2] = await Promise.all([page.waitForEvent('download'), page.click('#downloadBtn')]);
+    const out2 = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'po-')), 'po2.xlsx');
+    await d2.saveAs(out2);
+    const wb2 = new ExcelJS.Workbook();
+    await wb2.xlsx.readFile(out2);
+    assert.deepStrictEqual(wb2.worksheets.map((w) => w.name), ['당일발주']);
+    // 이 내용만 따로 받기
+    const [d3] = await Promise.all([page.waitForEvent('download'), page.click('#dataDownload')]);
+    assert.match(d3.suggestedFilename(), /^추가데이터_단골고객_샘플_\d{8}_\d{4}\.xlsx$/);
+    // 다시 열어도 데이터·적은 내용이 남아 있음
     const page2 = await ctx.newPage();
     await page2.goto(url);
     await page2.waitForSelector('#dataBody:not([hidden])');
-    assert.strictEqual(await page2.inputValue('#dataQuery'), '등급:VIP -탈퇴');
+    assert.strictEqual(await page2.inputValue('#dataQuery'), '김하늘, 문지호, 박민수');
     assert.deepStrictEqual(errors, []);
   } finally {
     await browser.close();
