@@ -195,6 +195,10 @@ test('사용자가 입력한 품목 — 쉼표로 구분, 띄어 쓴 단어는 �
   assert.strictEqual(P.classify('찰기장 쪽파전', cat), '');
   assert.strictEqual(P.classify('기장 쪽파 1단', cat), '쪽파');
   assert.deepStrictEqual(P.parseTerms('  ,  '), []);
+  // 도움말 예시: '쪽파 -기장' → '기장 쪽파'는 제외, 다른 쪽파는 포함
+  const ex = P.parseTerms('쪽파 -기장');
+  assert.strictEqual(P.classify('기장 쪽파 1단', ex), '');
+  assert.strictEqual(P.classify('진도 쪽파 1kg', ex), '쪽파');
 });
 
 test('품목 입력: 수제비+칼국수 는 함께 주문한 조합', () => {

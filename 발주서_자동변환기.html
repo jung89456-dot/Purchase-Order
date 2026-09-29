@@ -442,8 +442,8 @@ dialog .btn:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
       <details class="help">
         <summary>입력 요령</summary>
         <ul>
-          <li>띄어쓰기는 상관없습니다. 두 단어로 적으면 두 단어가 모두 들어 있는 주문을 찾습니다. <code>청도 미나리</code> → ‘[청도] 미나리 1kg’, ‘미나리 (경북 청도산)’</li>
-          <li>빼고 싶은 단어는 앞에 <code>-</code>를 붙입니다. <code>쪽파 -찰기장</code> → ‘찰기장 쪽파전’은 제외</li>
+          <li>띄어쓰기는 상관없습니다. 두 단어로 적으면 두 단어가 모두 들어 있는 주문을 찾습니다.<br>예) <code>청도 미나리</code> → ‘[청도] 미나리 1kg’, ‘미나리 (경북 청도산)’</li>
+          <li>빼고 싶은 단어는 앞에 <code>-</code>를 붙입니다.<br>예) <code>쪽파 -기장</code> → ‘기장 쪽파’는 제외</li>
           <li>적은 내용은 이 브라우저에 저장되어 다음에 열어도 그대로 있습니다.</li>
         </ul>
       </details>
@@ -1574,7 +1574,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v12';
+  var APP_VERSION = 'v13';
   var HISTORY_KEY = 'po.history.v1'; // 지난 발주 기록 (주문 키의 해시만 저장)
   var USED_KEY = 'po.used';
   var HISTORY_DAYS = 14;
