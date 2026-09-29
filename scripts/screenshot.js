@@ -18,14 +18,21 @@ const samples = ['스마트스토어_주문샘플.xlsx', '쿠팡_주문샘플.xl
   const browser = await chromium.launch({ env: { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' } });
   const url = 'file://' + path.join(ROOT, 'index.html');
   try {
-    for (const [suffix, viewport] of [['', { width: 1280, height: 800 }], ['-mobile', { width: 390, height: 844 }]]) {
-      const page = await browser.newPage({ viewport, deviceScaleFactor: 1, acceptDownloads: true });
+    const shots = [['', { width: 1280, height: 800 }, 'light'], ['-mobile', { width: 390, height: 844 }, 'light']];
+    if (process.argv.includes('--dark')) shots.push(['-dark', { width: 1280, height: 800 }, 'dark']);
+    for (const [suffix, viewport, colorScheme] of shots) {
+      const page = await browser.newPage({ viewport, deviceScaleFactor: 1, acceptDownloads: true, colorScheme });
       await page.goto(url);
       if (!suffix) await page.screenshot({ path: path.join(outDir, `${version}-empty.png`), fullPage: true });
+      // v7 부터: 품목 입력칸에 판매 품목을 적은 상태로 캡처
+      if (await page.locator('#termInput').count()) {
+        await page.fill('#termInput', '수제비, 칼국수, 구포국수, 예산국수, 기장 쪽파, 여수 돌산갓, 청도 미나리, 곡물면');
+        await page.press('#termInput', 'Enter');
+      }
       await page.setInputFiles('#fileInput', samples);
       await page.waitForFunction(() => !window.__po || (window.__po.state.files.length === 2 && !window.__po.state.busy));
       await page.waitForTimeout(300);
-      await page.screenshot({ path: path.join(outDir, `${version}${suffix || '-result'}.png`), fullPage: true });
+      await page.screenshot({ path: path.join(outDir, `${version}${suffix || '-result'}.png`), fullPage: suffix !== '-dark' });
       // 다운로드 완료 화면 (v6 부터)
       if (!suffix && (await page.locator('#doneBox').count())) {
         await Promise.all([page.waitForEvent('download'), page.click('#downloadBtn')]);

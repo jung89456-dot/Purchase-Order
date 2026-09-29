@@ -236,6 +236,12 @@
 
   /** 키워드 일치 길이 (조합 키워드는 가장 긴 조각 길이). 불일치면 0 */
   function matchLen(t, k) {
+    // 'A&B': A 와 B 가 상품명 어디에든 모두 들어 있으면 일치 (사용자가 띄어 쓴 품목 입력용)
+    if (k.indexOf('&') !== -1) {
+      var all = k.split('&').filter(Boolean);
+      if (!all.length || all.some(function (p) { return t.indexOf(p) === -1; })) return 0;
+      return Math.max.apply(null, all.map(function (p) { return p.length; }));
+    }
     if (k.indexOf('+') === -1) return t.indexOf(k) !== -1 ? k.length : 0;
     var parts = k.split('+').filter(Boolean);
     if (!parts.length || !comboNear(t, parts)) return 0;
@@ -265,12 +271,12 @@
     // 다른 품목의 일치가 1위 품목 키워드 안의 글자 때문이라면 겹침으로 보지 않는다
     // (예: '곡물국수' 안의 '국수', '구포 칼국수'의 '구포+국수' 중 '국수' ⊂ '칼국수')
     if (matches.length > 1) {
-      var bestPlain = hits[best].filter(function (k) { return k.indexOf('+') === -1; });
+      var bestPlain = hits[best].filter(function (k) { return !/[+&]/.test(k); });
       var inside = function (piece) { return bestPlain.some(function (b) { return b !== piece && b.indexOf(piece) !== -1; }); };
       matches = matches.filter(function (m) {
         if (m === best) return true;
         return !hits[m].every(function (k) {
-          return k.indexOf('+') === -1 ? inside(k) : k.split('+').some(inside);
+          return !/[+&]/.test(k) ? inside(k) : k.split(/[+&]/).some(inside);
         });
       });
     }
@@ -285,6 +291,25 @@
   }
 
   function classify(text, catalog) { return classifyText(text, catalog).name; }
+
+  /**
+   * 사용자가 입력한 품목 글 → 분류용 목록
+   * '수제비, 칼국수, 청도 미나리 -돌미나리' → 쉼표로 품목을 나누고,
+   * 띄어 쓴 단어는 모두 들어 있어야 하며, '-'로 시작하는 단어는 제외어.
+   */
+  function parseTerms(text) {
+    var seen = {}, out = [];
+    String(text || '').split(/[,，、;\n]+/).forEach(function (chunk) {
+      var words = chunk.trim().split(/\s+/).filter(Boolean);
+      var pos = words.filter(function (w) { return w.charAt(0) !== '-'; });
+      var neg = words.filter(function (w) { return w.charAt(0) === '-' && w.length > 1; });
+      var name = pos.join(' ');
+      if (!name || seen[norm(name)]) return;
+      seen[norm(name)] = true;
+      out.push({ name: name, keywords: (pos.length > 1 ? [pos.map(norm).join('&')] : []).concat(neg) });
+    });
+    return out;
+  }
 
   /**
    * 2차원 배열(시트) → 변환 결과
@@ -415,6 +440,7 @@
     classify: classify,
     classifyText: classifyText,
     classifyProduct: classifyProduct,
+    parseTerms: parseTerms,
     convertSheet: convertSheet,
     convertSheets: convertSheets
   };

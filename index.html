@@ -18,7 +18,7 @@
   <main class="container">
     <ol class="stepper" aria-label="진행 단계">
       <li><button type="button" id="stepper-1" data-target="step-upload"><span class="step-mark">1</span> 주문 파일 올리기</button></li>
-      <li><button type="button" id="stepper-2" data-target="step-items"><span class="step-mark">2</span> 품목 고르기</button></li>
+      <li><button type="button" id="stepper-2" data-target="step-items"><span class="step-mark">2</span> 품목 입력</button></li>
       <li><button type="button" id="stepper-3" data-target="step-preview"><span class="step-mark">3</span> 확인 후 다운로드</button></li>
     </ol>
 
@@ -52,41 +52,27 @@
       <ul class="file-list" id="fileList" aria-live="polite"></ul>
     </section>
 
-    <!-- 2. 품목 선택 -->
+    <!-- 2. 품목 입력 -->
     <section class="card" id="step-items" aria-labelledby="h-items">
       <div class="card-head">
-        <h2 id="h-items">② 발주할 품목 고르기</h2>
-        <div class="head-actions">
-          <button type="button" class="link-btn" id="selectAllBtn">전체 선택</button>
-          <button type="button" class="link-btn" id="selectNoneBtn">전체 해제</button>
-          <button type="button" class="btn secondary small-btn" id="manageBtn" aria-expanded="false" aria-controls="managePanel">⚙ 품목 관리</button>
-        </div>
+        <h2 id="h-items">② 발주할 품목 입력</h2>
       </div>
-      <div class="items-summary">
-        <span id="itemsSummaryText"></span>
-        <button type="button" class="btn secondary small-btn" id="itemsToggle" aria-expanded="false" aria-controls="itemsBody">바꾸기</button>
+      <label for="termInput" class="term-label">발주서에 넣을 품목을 적어 주세요</label>
+      <div class="term-row">
+        <input type="text" id="termInput" class="term-input" placeholder="예: 수제비, 칼국수, 청도 미나리" autocomplete="off" spellcheck="false" aria-describedby="termHelp">
+        <button type="button" class="btn secondary" id="termClear" hidden>지우기</button>
       </div>
-      <div id="itemsBody">
-        <p class="muted small">체크한 품목의 주문만 발주서에 들어갑니다. 상품명에 품목 이름(또는 키워드)이 들어 있으면 자동으로 분류됩니다.</p>
-        <div class="chips" id="itemChips" role="group" aria-label="발주할 품목"></div>
-        <p class="notice-box warn small" id="storageWarn" hidden>⚠ 이 브라우저에서는 품목 설정을 저장할 수 없어, 다음에 열면 기본 품목으로 돌아갑니다. (시크릿 창이거나 저장 공간이 막혀 있을 수 있습니다.)</p>
-      </div>
-
-      <div class="manage-panel" id="managePanel" hidden>
-        <h3>품목 관리</h3>
-        <p class="muted small">품목 이름은 항상 키워드로 쓰이고, 아래에 추가 키워드를 쉼표로 넣을 수 있습니다. 띄어쓰기는 무시합니다.<br>
-          <b>A+B</b> 는 A와 B가 둘 다 들어 있을 때만 해당합니다. 예) <code>청도+미나리</code> → ‘[청도] 미나리 1kg’ 인식, ‘돌미나리’는 제외</p>
-        <ul class="manage-list" id="manageList"></ul>
-        <form class="add-item" id="addItemForm">
-          <label for="newItemInput" class="sr-only">추가할 품목 이름</label>
-          <input type="text" id="newItemInput" placeholder="새 품목 이름 (예: 들기름)" maxlength="30" autocomplete="off">
-          <button type="submit" class="btn secondary">+ 품목 추가</button>
-        </form>
-        <div class="manage-foot">
-          <button type="button" class="link-btn" id="restoreCatalogBtn">기본 품목으로 되돌리기</button>
-          <button type="button" class="btn" id="manageDoneBtn">완료</button>
-        </div>
-      </div>
+      <p class="muted small" id="termHelp">쉼표(,)로 여러 품목을 나눠 적으면, 상품명에 그 글자가 들어 있는 주문만 들어갑니다. 비워 두면 전체 주문이 들어갑니다.</p>
+      <div class="term-results" id="termResults" aria-live="polite"></div>
+      <details class="help">
+        <summary>입력 요령</summary>
+        <ul>
+          <li>띄어쓰기는 상관없습니다. 두 단어로 적으면 두 단어가 모두 들어 있는 주문을 찾습니다. <code>청도 미나리</code> → ‘[청도] 미나리 1kg’, ‘미나리 (경북 청도산)’</li>
+          <li>빼고 싶은 단어는 앞에 <code>-</code>를 붙입니다. <code>쪽파 -찰기장</code> → ‘찰기장 쪽파전’은 제외</li>
+          <li>적은 내용은 이 브라우저에 저장되어 다음에 열어도 그대로 있습니다.</li>
+        </ul>
+      </details>
+      <p class="notice-box warn small" id="storageWarn" hidden>⚠ 이 브라우저에서는 입력한 품목과 발주 기록을 저장할 수 없습니다. (시크릿 창이거나 저장 공간이 막혀 있을 수 있습니다.)</p>
     </section>
 
     <!-- 3. 확인 및 다운로드 -->

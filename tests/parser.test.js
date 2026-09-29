@@ -160,6 +160,18 @@ test('제외 키워드(-A)와 짧은 전화번호', () => {
   assert.ok(P.BLOCKING['phone-short']);
 });
 
+test('사용자가 입력한 품목 — 쉼표로 구분, 띄어 쓴 단어는 모두 포함, -단어는 제외', () => {
+  const cat = P.parseTerms('수제비, 칼국수 ,청도 미나리, 쪽파 -찰기장,, 수제비');
+  assert.deepStrictEqual(cat.map((c) => c.name), ['수제비', '칼국수', '청도 미나리', '쪽파']);
+  assert.strictEqual(P.classify('감자 수제비 500g', cat), '수제비');
+  assert.strictEqual(P.classify('[청도] 미나리 1kg', cat), '청도 미나리');
+  assert.strictEqual(P.classify('미나리 (경북 청도산)', cat), '청도 미나리');
+  assert.strictEqual(P.classify('돌미나리', cat), '');
+  assert.strictEqual(P.classify('찰기장 쪽파전', cat), '');
+  assert.strictEqual(P.classify('기장 쪽파 1단', cat), '쪽파');
+  assert.deepStrictEqual(P.parseTerms('  ,  '), []);
+});
+
 test('이미 발송된 주문 제외, +82 번호 정규화', () => {
   assert.strictEqual(P.excludeReason(['배송완료']), '배송완료');
   assert.ok(P.isShippedStatus('구매확정'));
