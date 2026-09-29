@@ -6,23 +6,24 @@
   <title>발주서 자동 변환기</title>
   <style>
 :root {
-  /* 공급처용 발주서 도구: 엑셀 머리글의 하늘색(#9BC2E6)을 표 머리에, 짙은 파랑을 주 동작에 */
-  --primary: #2f5597;
-  --primary-dark: #22427a;
-  --primary-text: #2f5597;
+  /* 네이버 초록(#03C75A)을 상단 띠에, 흰 글자가 잘 읽히는 짙은 초록을 버튼·탭에, 연한 초록을 표 머리에 */
+  --brand: #03c75a;
+  --primary: #009845;
+  --primary-dark: #007a38;
+  --primary-text: #007a38;
   --on-primary: #fff;
-  --accent: #9bc2e6;
-  --accent-soft: #eaf3fb;
-  --bg: #f3f5f8;
+  --accent: #c9f0d9;
+  --accent-soft: #e8f8ef;
+  --bg: #f3f6f4;
   --card: #fff;
-  --surface-2: #f3f5f8;
-  --surface-3: #e4e8ee;
+  --surface-2: #f3f6f4;
+  --surface-3: #e3e9e5;
   --text: #1f2937;
   --muted: #5b6472;
-  --line: #d9dee5;
-  --line-soft: #e8ebf0;
-  --hover: #f5f9ff;
-  --edited: #eef5ff;
+  --line: #d6ded9;
+  --line-soft: #e6ece8;
+  --hover: #f1fbf5;
+  --edited: #e8f8ef;
   --editing: #fffbe6;
   --excluded-bg: #fafbfc;
   --excluded-fg: #8a929d;
@@ -37,8 +38,8 @@
   --ok-soft: #e6f6ee;
   --ok-line: #b7e2c8;
   --ok-ink: #064e2f;
-  --dz-border: #6f95c4;
-  --dz-bg: #f7fbff;
+  --dz-border: #5cc98a;
+  --dz-bg: #f5fcf8;
   --toast-bg: #1f2937;
   --toast-fg: #fff;
   --shadow: rgba(15, 23, 42, .1);
@@ -48,28 +49,28 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --primary: #3d6bb3; --primary-dark: #325a98; --primary-text: #8fb4ea; --on-primary: #fff;
-    --accent: #2b4a73; --accent-soft: #1f3350;
-    --bg: #12161c; --card: #1b2129; --surface-2: #222a34; --surface-3: #2a333e;
-    --text: #e6e9ee; --muted: #a3acb9; --line: #34404d; --line-soft: #262e38;
-    --hover: #202a36; --edited: #1d2c42; --editing: #3a3216; --excluded-bg: #171c22; --excluded-fg: #7d8693;
+    --brand: #04a54c; --primary: #0f8f47; --primary-dark: #0b7a3c; --primary-text: #3ddc84; --on-primary: #fff;
+    --accent: #1d4a31; --accent-soft: #163a26;
+    --bg: #111714; --card: #19211c; --surface-2: #202a24; --surface-3: #28332c;
+    --text: #e6ebe8; --muted: #a3b0a8; --line: #334139; --line-soft: #243029;
+    --hover: #1c2a22; --edited: #183624; --editing: #3a3216; --excluded-bg: #151c18; --excluded-fg: #7d8a82;
     --danger: #ff8a80; --danger-soft: #3a1d1b; --danger-line: #6b2d28;
     --warn: #f2c14e; --warn-soft: #33290f; --warn-line: #6b5a22; --warn-ink: #f5d98a;
     --ok: #6fd49b; --ok-soft: #16301f; --ok-line: #2c5a3c; --ok-ink: #b8ecd0;
-    --dz-border: #4f7bb8; --dz-bg: #17202b; --toast-bg: #e6e9ee; --toast-fg: #12161c; --shadow: rgba(0, 0, 0, .4);
+    --dz-border: #2f8f5a; --dz-bg: #16211b; --toast-bg: #e6e9ee; --toast-fg: #12161c; --shadow: rgba(0, 0, 0, .4);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-    --primary: #3d6bb3; --primary-dark: #325a98; --primary-text: #8fb4ea; --on-primary: #fff;
-    --accent: #2b4a73; --accent-soft: #1f3350;
-    --bg: #12161c; --card: #1b2129; --surface-2: #222a34; --surface-3: #2a333e;
-    --text: #e6e9ee; --muted: #a3acb9; --line: #34404d; --line-soft: #262e38;
-    --hover: #202a36; --edited: #1d2c42; --editing: #3a3216; --excluded-bg: #171c22; --excluded-fg: #7d8693;
+    --brand: #04a54c; --primary: #0f8f47; --primary-dark: #0b7a3c; --primary-text: #3ddc84; --on-primary: #fff;
+    --accent: #1d4a31; --accent-soft: #163a26;
+    --bg: #111714; --card: #19211c; --surface-2: #202a24; --surface-3: #28332c;
+    --text: #e6ebe8; --muted: #a3b0a8; --line: #334139; --line-soft: #243029;
+    --hover: #1c2a22; --edited: #183624; --editing: #3a3216; --excluded-bg: #151c18; --excluded-fg: #7d8a82;
     --danger: #ff8a80; --danger-soft: #3a1d1b; --danger-line: #6b2d28;
     --warn: #f2c14e; --warn-soft: #33290f; --warn-line: #6b5a22; --warn-ink: #f5d98a;
     --ok: #6fd49b; --ok-soft: #16301f; --ok-line: #2c5a3c; --ok-ink: #b8ecd0;
-    --dz-border: #4f7bb8; --dz-bg: #17202b; --toast-bg: #e6e9ee; --toast-fg: #12161c; --shadow: rgba(0, 0, 0, .4);
+    --dz-border: #2f8f5a; --dz-bg: #16211b; --toast-bg: #e6e9ee; --toast-fg: #12161c; --shadow: rgba(0, 0, 0, .4);
     color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -95,7 +96,8 @@ body {
 .small { font-size: 13px; }
 
 /* 상단 */
-.topbar { background: var(--primary); color: var(--on-primary); }
+.topbar { background: var(--brand); color: var(--on-primary); }
+.topbar h1, .privacy { text-shadow: 0 1px 1px rgba(0, 60, 25, .35); }
 .topbar-inner { max-width: 1180px; margin: 0 auto; padding: 14px 16px; }
 .topbar h1 { margin: 0; font-size: 20px; }
 .version { font-size: 12px; font-weight: normal; background: rgba(255,255,255,.18); padding: 2px 8px; border-radius: 10px; vertical-align: middle; }
@@ -1572,7 +1574,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v11';
+  var APP_VERSION = 'v12';
   var HISTORY_KEY = 'po.history.v1'; // 지난 발주 기록 (주문 키의 해시만 저장)
   var USED_KEY = 'po.used';
   var HISTORY_DAYS = 14;
