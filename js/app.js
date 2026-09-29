@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v8';
+  var APP_VERSION = 'v9';
   var HISTORY_KEY = 'po.history.v1'; // 지난 발주 기록 (주문 키의 해시만 저장)
   var USED_KEY = 'po.used';
   var HISTORY_DAYS = 14;
@@ -300,7 +300,22 @@
   }
 
   function catalogHas(name) {
-    return state.catalog.some(function (c) { return c.name === name; });
+    if (state.catalog.some(function (c) { return c.name === name; })) return true;
+    // '수제비+칼국수' 같은 조합은 각 품목이 모두 입력돼 있으면 유효
+    var parts = String(name).split('+');
+    return parts.length > 1 && parts.every(function (p) { return state.catalog.some(function (c) { return c.name === p; }); });
+  }
+
+  // 여러 품목이 함께 든 주문(세트 등)의 품목 이름: 입력한 조합('수제비+칼국수')이 있으면 그것, 없으면 입력 순서대로 이어 붙임
+  function comboOf(matches) {
+    var explicit = state.catalog.filter(function (c) { return c.parts && matches.indexOf(c.name) !== -1; });
+    if (explicit.length) {
+      explicit.sort(function (a, b) { return b.parts.length - a.parts.length; });
+      return { name: explicit[0].name, parts: explicit[0].parts };
+    }
+    var order = state.catalog.map(function (c) { return c.name; });
+    var parts = matches.slice().sort(function (a, b) { return order.indexOf(a) - order.indexOf(b); });
+    return { name: parts.join('+'), parts: parts };
   }
 
   function classifyRow(r) {
@@ -351,12 +366,25 @@
         // 같은 파일 안이거나 주문번호가 없으면 자동으로 빼지 않고 확인만 요청
         warns.push('dup-suspect');
       }
+      r.refIdx = refMatch(r);
       var cls = classifyRow(r);
-      r.category = cls.name;
       r.matches = cls.matches;
-      if (cls.matches.length > 1) warns.push('ambiguous');
-      // 포함 여부는 표에 보이는 대표 품목 하나로만 정한다 (체크를 끈 품목이 몰래 섞이지 않게)
-      var catOn = r.category ? !!state.selected[r.category] : state.otherSelected;
+      r.combo = null;
+      var plain = cls.matches.filter(function (m) { return m.indexOf('+') === -1; });
+      if (cls.matches.length > 1 || (plain.length === 0 && cls.matches.length === 1 && cls.matches[0].indexOf('+') !== -1)) {
+        // 함께 주문한 품목은 '수제비+칼국수'처럼 하나로 표시 (한쪽 품목으로 몰지 않음)
+        var combo = comboOf(cls.matches);
+        r.category = combo.name;
+        r.combo = combo.parts;
+      } else if (r.categoryManual && r.categoryManual.indexOf('+') !== -1) {
+        r.category = r.categoryManual;
+        r.combo = r.categoryManual.split('+');
+      } else {
+        r.category = cls.name;
+      }
+      // 포함 여부: 입력한 품목(조합이면 그중 하나라도)에 해당하면 포함
+      var catOn = r.combo ? r.combo.some(function (c) { return !!state.selected[c]; }) || !!state.selected[r.category]
+        : r.category ? !!state.selected[r.category] : state.otherSelected;
       if (!catOn) reasons.push(NOMATCH);
       r.reasons = reasons;
       r.warns = warns;
@@ -410,6 +438,7 @@
     renderTerms();
     renderTable();
     renderStats();
+    renderRef();
   }
 
   // 칩·파일 목록·요약만 갱신 (표는 그대로 두어 편집 중인 칸과 포커스를 지킨다)
@@ -481,6 +510,18 @@
       var chipEl = el('span', { className: 'term-chip' + (n ? '' : ' zero') }, c.name + ' ');
       chipEl.appendChild(el('b', null, n + '건'));
       if (!n) chipEl.title = '상품명에 이 글자가 들어 있는 주문이 없습니다. 글자를 확인해 주세요.';
+      box.appendChild(chipEl);
+    });
+    // 입력하지 않았지만 주문에 나온 조합(예: 수제비+칼국수)도 따로 센다
+    var combos = [];
+    state.rows.forEach(function (r) {
+      if (r.combo && combos.indexOf(r.category) === -1 && !state.catalog.some(function (c) { return c.name === r.category; })) combos.push(r.category);
+    });
+    combos.forEach(function (name) {
+      var n = candidateCount(function (r) { return r.category === name; });
+      if (!n) return;
+      var chipEl = el('span', { className: 'term-chip combo', title: '두 품목을 함께 주문한 건수' }, name + ' ');
+      chipEl.appendChild(el('b', null, n + '건'));
       box.appendChild(chipEl);
     });
     var none = candidateCount(function (r) { return !r.category; });
@@ -577,6 +618,7 @@
     cb.addEventListener('change', function () { setIncluded(tr, r, cb.checked); });
     tdc.appendChild(cb);
     tdc.appendChild(el('span', { className: 'mk ' + r.market, title: r.source, 'aria-label': r.source }, r.market === 'smartstore' ? 'N' : r.market === 'coupang' ? 'C' : '·'));
+    tdc.appendChild(el('span', { className: 'star', title: '참고 데이터에 있는 고객', 'aria-label': '참고 데이터에 있는 고객' }, '★'));
     tr.appendChild(tdc);
 
     EDIT_FIELDS.forEach(function (f) {
@@ -630,11 +672,18 @@
       return;
     }
     var opts = state.catalog.map(function (c) { return { value: c.name, label: c.name, on: true }; });
+    // 함께 주문한 경우를 위한 조합: 이 주문에 걸린 조합 + 오늘 주문에 나온 조합 (예: 수제비+칼국수)
+    var combos = [];
+    if (r.combo) combos.push(r.category);
+    state.rows.forEach(function (x) { if (x.combo && combos.indexOf(x.category) === -1) combos.push(x.category); });
+    combos.forEach(function (name) {
+      if (!opts.some(function (o) { return o.value === name; })) opts.push({ value: name, label: name + ' (함께 주문)', on: true });
+    });
     opts.push({ value: '', label: '해당 없음', on: false });
     if (r.categoryManual != null) opts.push({ value: null, label: '↺ 자동 분류로 되돌리기', on: true });
     var cur = 0;
     opts.forEach(function (o, i) {
-      var item = el('div', { className: 'cat-opt' + (o.value === (r.category || '') && r.categoryManual !== undefined ? ' current' : ''), role: 'option', id: 'catopt-' + i });
+      var item = el('div', { className: 'cat-opt' + (o.value === (r.category || '') ? ' current' : ''), role: 'option', id: 'catopt-' + i });
       item.appendChild(el('span', null, o.label));
       if (!o.on) item.appendChild(el('span', { className: 'cat-off' }, '발주에서 빠짐'));
       item.addEventListener('mousedown', function (e) { e.preventDefault(); choose(o); });
@@ -664,7 +713,8 @@
     menu.addEventListener('focusout', function () { setTimeout(function () { if (catMenu.node === menu && !menu.contains(document.activeElement)) closeCatMenu(); }, 0); });
     // 표 스크롤 영역에 잘리지 않도록 body 에 띄우고, 아래 공간이 부족하면 위로 펼친다
     document.body.appendChild(menu);
-    placeMenu(menu, td.querySelector('.cat-tag'));
+    var anchor = td.querySelector('.cat-tag');
+    placeMenu(menu, anchor);
     catMenu.node = menu; catMenu.td = td;
     highlight(cur);
     menu.focus({ preventScroll: true });
@@ -674,16 +724,22 @@
 
   function placeMenu(menu, anchor) {
     var a = anchor.getBoundingClientRect();
-    var bar = $('actionbar').hidden ? 0 : $('actionbar').getBoundingClientRect().top;
-    var bottomLimit = bar || window.innerHeight;
+    var bottomLimit = $('actionbar').hidden ? window.innerHeight : $('actionbar').getBoundingClientRect().top;
     menu.style.maxHeight = '';
-    var h = Math.min(menu.scrollHeight, MENU_MAX);
+    // scrollHeight 는 테두리를 빼고 재므로 위아래 테두리(1px씩)를 더한다
+    var h = Math.min(menu.scrollHeight + 2, MENU_MAX);
     var below = bottomLimit - a.bottom - 8, above = a.top - 8;
-    var up = below < h && above > below;
-    var avail = Math.max(120, up ? above : below);
-    menu.style.maxHeight = Math.min(MENU_MAX, avail) + 'px';
+    var top;
+    if (h <= below) top = a.bottom + 4;                 // 아래로 펼침
+    else if (h <= above) top = a.top - h - 4;           // 위로 펼침
+    else {
+      // 위아래 어디에도 다 안 들어가면 선택창처럼 태그 위에 겹쳐서 화면 안에 전부 보이게
+      h = Math.min(h, bottomLimit - 16);
+      top = Math.max(8, Math.min(a.top - h / 2, bottomLimit - h - 8));
+    }
+    menu.style.maxHeight = h + 'px';
     menu.style.left = Math.max(8, Math.min(a.left, window.innerWidth - menu.offsetWidth - 8)) + 'px';
-    menu.style.top = (up ? Math.max(8, a.top - Math.min(h, avail) - 4) : a.bottom + 4) + 'px';
+    menu.style.top = top + 'px';
   }
 
   // 스크롤하면 메뉴가 태그를 따라가고, 태그가 화면 밖으로 나가면 닫는다
@@ -753,6 +809,9 @@
 
   function updateRow(tr, r) {
     tr.className = r.included ? '' : 'excluded';
+    var star = tr.querySelector('.star');
+    star.hidden = !(r.refIdx >= 0);
+    if (r.refIdx >= 0) star.title = '참고 데이터(' + ref.name + ')에 있는 고객';
     tr.querySelector('.c-check input').checked = r.included;
     var tag = tr.querySelector('.cat-tag');
     var catLabel = r.category || (state.catalog.length ? '해당 없음' : '전체');
@@ -832,7 +891,9 @@
     $('tableWrap').setAttribute('aria-labelledby', 'tab-' + state.view);
     var byMarket = {};
     inc.forEach(function (r) { byMarket[r.source] = (byMarket[r.source] || 0) + 1; });
-    $('marketLine').textContent = Object.keys(byMarket).map(function (m) { return m + ' ' + byMarket[m] + '건'; }).join(' · ') + (edited ? ' · 고친 주문 ' + edited + '건' : '');
+    var stars = inc.filter(function (r) { return r.refIdx >= 0; }).length;
+    $('marketLine').textContent = Object.keys(byMarket).map(function (m) { return m + ' ' + byMarket[m] + '건'; }).join(' · ') +
+      (stars ? ' · ★ 참고 데이터 고객 ' + stars + '건' : '') + (edited ? ' · 고친 주문 ' + edited + '건' : '');
 
     renderExcludeNotice(out);
 
@@ -1232,6 +1293,212 @@
     $('h-preview').focus({ preventScroll: true });
   }
 
+  /* ---------------- ④ 참고 데이터 (단골고객 리스트 등) ---------------- */
+
+  var REF_KEY = 'po.refdata.v1';
+  var REF_QUERY_KEY = 'po.refquery.v1';
+  var REF_PREVIEW = 200;
+  var ref = { name: '', headers: [], rows: [], hidden: {}, query: '', matchOrders: false, saved: true, cols: { phone: -1, name: -1 }, index: null };
+
+  function loadRef() {
+    try {
+      var d = JSON.parse(localStorage.getItem(REF_KEY) || 'null');
+      if (d && Array.isArray(d.headers) && Array.isArray(d.rows)) {
+        ref.name = String(d.name || '');
+        ref.headers = d.headers.map(String);
+        ref.rows = d.rows.filter(Array.isArray).map(function (r) { return r.map(function (v) { return v == null ? '' : String(v); }); });
+        ref.hidden = d.hidden && typeof d.hidden === 'object' ? d.hidden : {};
+        ref.matchOrders = d.matchOrders === true;
+      }
+      ref.query = localStorage.getItem(REF_QUERY_KEY) || '';
+    } catch (e) { /* 저장된 데이터가 없거나 읽을 수 없으면 빈 상태로 */ }
+    $('dataQuery').value = ref.query;
+    $('dataMatchOrders').checked = ref.matchOrders;
+    buildRefIndex();
+  }
+
+  function saveRef() {
+    try {
+      localStorage.setItem(REF_QUERY_KEY, ref.query);
+      if (ref.rows.length) {
+        localStorage.setItem(REF_KEY, JSON.stringify({ name: ref.name, headers: ref.headers, rows: ref.rows, hidden: ref.hidden, matchOrders: ref.matchOrders }));
+      } else {
+        localStorage.removeItem(REF_KEY);
+      }
+      ref.saved = true;
+    } catch (e) {
+      ref.saved = false; // 데이터가 너무 크면 이번에만 쓰고 저장은 못 함
+    }
+  }
+
+  function buildRefIndex() {
+    ref.cols = P.customerColumns(ref.headers);
+    var phones = {}, names = {};
+    ref.rows.forEach(function (row, i) {
+      if (ref.cols.phone >= 0) { var d = P.phoneDigits(row[ref.cols.phone]); if (d && phones[d] == null) phones[d] = i; }
+      if (ref.cols.name >= 0) { var n = P.norm(row[ref.cols.name]); if (n && names[n] == null) names[n] = i; }
+    });
+    ref.index = { phones: phones, names: names };
+  }
+
+  // 주문이 참고 데이터에 있는 고객인지: 전화번호로 대조, 데이터에 전화번호 열이 없으면 이름으로
+  function refMatch(r) {
+    if (!ref.rows.length || !ref.index) return -1;
+    if (ref.cols.phone >= 0) {
+      var d = P.phoneDigits(r.phone);
+      return d && ref.index.phones[d] != null ? ref.index.phones[d] : -1;
+    }
+    if (ref.cols.name >= 0) {
+      var n = P.norm(r.name);
+      return n && ref.index.names[n] != null ? ref.index.names[n] : -1;
+    }
+    return -1;
+  }
+
+  function refVisibleCols() {
+    return ref.headers.map(function (_, i) { return i; }).filter(function (i) { return !ref.hidden[ref.headers[i]]; });
+  }
+
+  function refResult() {
+    var q = P.parseDataQuery(ref.query);
+    var idx = P.filterDataRows(ref, q);
+    if (ref.matchOrders) {
+      var hit = {};
+      state.rows.forEach(function (r) { if (r.refIdx >= 0) hit[r.refIdx] = true; });
+      idx = idx.filter(function (i) { return hit[i]; });
+    }
+    return { idx: idx, unknown: P.unknownQueryColumns(ref, q) };
+  }
+
+  function renderRef() {
+    var has = ref.rows.length > 0;
+    $('dataBody').hidden = !has;
+    $('dataClear').hidden = !has;
+    $('dataDrop').classList.toggle('loaded', has);
+    $('dataPick').textContent = has ? '다른 파일로 바꾸기' : '데이터 파일 선택';
+    $('dataInfo').textContent = has
+      ? ref.name + ' · ' + ref.rows.length + '행 · 열 ' + ref.headers.length + '개' + (ref.saved ? '' : ' · 파일이 커서 저장하지 못했습니다(다음에 다시 넣어 주세요)')
+      : '단골고객 리스트 등 (.xlsx · .xls · .csv)';
+    if (!has) return;
+
+    var cols = $('dataCols');
+    cols.innerHTML = '';
+    cols.appendChild(el('span', { className: 'muted small' }, '보여줄 열:'));
+    ref.headers.forEach(function (h) {
+      var b = el('button', { type: 'button', className: 'col-chip', 'aria-pressed': String(!ref.hidden[h]), title: '눌러서 이 열을 넣거나 뺍니다' }, h);
+      b.addEventListener('click', function () { ref.hidden[h] = !ref.hidden[h]; saveRef(); renderRef(); });
+      cols.appendChild(b);
+    });
+
+    var res = refResult();
+    var vis = refVisibleCols();
+    var sum = $('dataSummary');
+    sum.innerHTML = '';
+    sum.appendChild(el('b', null, res.idx.length + '행'));
+    sum.appendChild(document.createTextNode(' 뽑음 (전체 ' + ref.rows.length + '행)'));
+    var notes = [];
+    if (res.unknown.length) notes.push('‘' + res.unknown.join(', ') + '’ 열이 없습니다. 열 이름: ' + ref.headers.join(', '));
+    if (ref.matchOrders) {
+      if (ref.cols.phone < 0 && ref.cols.name < 0) notes.push('데이터에 전화번호나 이름 열이 없어 주문과 대조할 수 없습니다.');
+      else if (!state.rows.length) notes.push('③ 에 주문 파일을 올리면 겹치는 고객을 찾습니다.');
+      else notes.push('주문과 대조 기준: ' + (ref.cols.phone >= 0 ? '전화번호(' + ref.headers[ref.cols.phone] + ')' : '이름(' + ref.headers[ref.cols.name] + ')'));
+    }
+    notes.forEach(function (n) { sum.appendChild(el('span', { className: 'warn-text' }, ' · ' + n)); });
+
+    var table = $('dataTable');
+    var thead = table.querySelector('thead'), tbody = table.querySelector('tbody');
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
+    var htr = el('tr');
+    vis.forEach(function (i) { htr.appendChild(el('th', { scope: 'col' }, ref.headers[i])); });
+    thead.appendChild(htr);
+    var frag = document.createDocumentFragment();
+    res.idx.slice(0, REF_PREVIEW).forEach(function (ri) {
+      var tr = el('tr');
+      vis.forEach(function (i) { tr.appendChild(el('td', null, ref.rows[ri][i])); });
+      frag.appendChild(tr);
+    });
+    tbody.appendChild(frag);
+    if (res.idx.length > REF_PREVIEW) {
+      var more = el('tr');
+      more.appendChild(el('td', { colspan: String(Math.max(1, vis.length)), className: 'muted' }, '미리보기는 ' + REF_PREVIEW + '행까지만 보입니다. 엑셀로 받으면 ' + res.idx.length + '행이 모두 들어갑니다.'));
+      tbody.appendChild(more);
+    }
+    $('dataDownload').disabled = !res.idx.length || !vis.length;
+  }
+
+  function handleDataFile(file) {
+    if (!file) return;
+    $('dataInfo').textContent = '‘' + file.name + '’ 읽는 중…';
+    readFile(file)
+      .then(function (data) { return workbookFromBytes(file, data); })
+      .then(function (wb) {
+        // 행이 가장 많은 시트를 쓴다
+        var best = null;
+        sheetsOf(wb).forEach(function (sh) {
+          var t = P.parseDataTable(sh.rows);
+          if (!best || t.rows.length > best.rows.length) best = t;
+        });
+        if (!best || !best.rows.length) throw friendly('NO_ROWS');
+        ref.name = file.name;
+        ref.headers = best.headers;
+        ref.rows = best.rows;
+        ref.hidden = {};
+        buildRefIndex();
+        saveRef();
+        compute();
+        renderLight();
+        renderTable();
+        renderRef();
+        toast('참고 데이터 ‘' + file.name + '’ ' + ref.rows.length + '행을 넣었습니다.');
+      })
+      .catch(function (e) {
+        setBusy(null);
+        renderRef();
+        toast(e && e.code ? e.message : MESSAGES.UNREADABLE);
+      });
+  }
+
+  function refCellValue(v) {
+    // 금액·수량 같은 숫자는 숫자로, 0으로 시작하는 번호(전화번호 등)는 글자 그대로
+    return /^-?(0|[1-9]\d{0,14})(\.\d+)?$/.test(v) ? Number(v) : v;
+  }
+
+  function downloadRef() {
+    var res = refResult();
+    var vis = refVisibleCols();
+    if (!res.idx.length || !vis.length) return;
+    var wb = new ExcelJS.Workbook();
+    var ws = wb.addWorksheet('발췌');
+    ws.columns = vis.map(function (i) {
+      var w = ref.headers[i].length * 2 + 4;
+      res.idx.slice(0, 200).forEach(function (ri) { w = Math.max(w, String(ref.rows[ri][i]).length * 1.6 + 2); });
+      return { header: ref.headers[i], key: 'c' + i, width: Math.min(60, Math.max(10, w)) };
+    });
+    var head = ws.getRow(1);
+    head.eachCell(function (cell) {
+      cell.font = { name: '맑은 고딕', size: 11, bold: true };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF9BC2E6' } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+    });
+    res.idx.forEach(function (ri) {
+      var row = ws.addRow(vis.map(function (i) { return refCellValue(ref.rows[ri][i]); }));
+      row.font = { name: '맑은 고딕', size: 11 };
+    });
+    var base = ref.name.replace(/\.[^.]+$/, '');
+    var stamp = POExporter.defaultFileName().replace(/^당일발주_/, '').replace(/\.xlsx$/, '');
+    var fileName = '발췌_' + base + '_' + stamp + '.xlsx';
+    $('dataDownload').disabled = true;
+    wb.xlsx.writeBuffer().then(function (buf) {
+      return saveFile(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileName);
+    }).then(function (saved) {
+      if (saved) toast('✅ ' + fileName + ' (' + res.idx.length + '행) 저장했습니다.');
+    }).catch(function (e) {
+      toast('엑셀을 저장하지 못했습니다: ' + (e && e.message || e));
+    }).then(function () { $('dataDownload').disabled = false; });
+  }
+
   /* ---------------- 이벤트 연결 ---------------- */
 
   var fileInput = $('fileInput');
@@ -1254,7 +1521,7 @@
   window.addEventListener('dragover', function (e) { e.preventDefault(); });
   window.addEventListener('drop', function (e) {
     e.preventDefault();
-    if (!dropzone.contains(e.target) && e.dataTransfer && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+    if (!dropzone.contains(e.target) && !$('step-data').contains(e.target) && e.dataTransfer && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
   });
 
   document.querySelectorAll('.stepper button').forEach(function (b) {
@@ -1283,6 +1550,43 @@
         toast('발주 기록을 지웠습니다.');
       });
   });
+  $('dataPick').addEventListener('click', function () { $('dataInput').click(); });
+  $('dataInput').addEventListener('change', function () {
+    var f = $('dataInput').files[0];
+    $('dataInput').value = '';
+    handleDataFile(f);
+  });
+  var dataDrop = $('dataDrop');
+  ['dragenter', 'dragover'].forEach(function (ev) {
+    dataDrop.addEventListener(ev, function (e) { e.preventDefault(); dataDrop.classList.add('drag'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    dataDrop.addEventListener(ev, function (e) { e.preventDefault(); dataDrop.classList.remove('drag'); });
+  });
+  dataDrop.addEventListener('drop', function (e) { if (e.dataTransfer && e.dataTransfer.files.length) handleDataFile(e.dataTransfer.files[0]); });
+  var refTimer;
+  $('dataQuery').addEventListener('input', function () {
+    clearTimeout(refTimer);
+    refTimer = setTimeout(function () { ref.query = $('dataQuery').value; saveRef(); renderRef(); }, 250);
+  });
+  $('dataQuery').addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    clearTimeout(refTimer);
+    ref.query = $('dataQuery').value; saveRef(); renderRef();
+  });
+  $('dataMatchOrders').addEventListener('change', function () { ref.matchOrders = $('dataMatchOrders').checked; saveRef(); renderRef(); });
+  $('dataDownload').addEventListener('click', downloadRef);
+  $('dataClear').addEventListener('click', function () {
+    confirmBox('참고 데이터를 지울까요?', [el('p', null, '‘' + ref.name + '’ 데이터를 이 브라우저에서 지웁니다. 발주서에는 영향이 없습니다.')], '지우기')
+      .then(function (ok) {
+        if (!ok) return;
+        ref.name = ''; ref.headers = []; ref.rows = []; ref.hidden = {};
+        buildRefIndex(); saveRef(); render();
+        toast('참고 데이터를 지웠습니다.');
+      });
+  });
+
   var termTimer;
   $('termInput').addEventListener('input', function () {
     clearTimeout(termTimer);
@@ -1302,6 +1606,7 @@
 
   loadTerms();
   loadHistory();
+  loadRef();
   render();
 
   // 호스팅 버전에서만: 처음 여는 사람에게는 샘플이 채워진 화면을 보여 준다

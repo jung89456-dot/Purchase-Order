@@ -434,7 +434,7 @@ test('샘플 상태에서는 파일 이름에 샘플_ 이 붙고 기록에 남�
   });
 });
 
-test('세트 상품은 확인 필요·점검창에 나옴, 짧은 전화번호는 차단', async () => {
+test('세트 상품은 조합 품목으로, 짧은 전화번호는 차단', async () => {
   const rows = [['수취인명', '상품명', '수량', '전화번호', '주소'],
     ['가', '칼국수+수제비 세트', 1, '01011112222', '서울'],
     ['나', '생칼국수', 1, '12345', '부산']];
@@ -442,11 +442,13 @@ test('세트 상품은 확인 필요·점검창에 나옴, 짧은 전화번호�
     await upload(page, [{ name: 'set.xlsx', mimeType: T, buffer: mkXlsx(rows) }]);
     await page.waitForFunction(() => window.__po.state.files.length === 1 && !window.__po.state.busy);
     await typeTerms(page, '칼국수, 수제비');
-    assert.match(await page.textContent('#tab-check'), /2/);
+    // 세트는 '칼국수+수제비' 로 분류되어 확인 필요가 아님 → 짧은 전화번호 1건만
+    assert.match(await page.textContent('#tab-check'), /1/);
+    assert.strictEqual(await page.evaluate(() => window.__po.state.rows[0].category), '칼국수+수제비');
     await page.click('#downloadBtn');
     await page.waitForSelector('#confirmDialog[open]');
     const t = await page.textContent('#confirmBody');
-    assert.match(t, /여러 품목에 걸린 주문 1건/);
+    assert.doesNotMatch(t, /여러 품목/);
     assert.match(t, /전화번호가 너무 짧음/);
   });
 });
@@ -461,4 +463,73 @@ test('열린 품목 메뉴의 태그를 다시 누르면 닫힘', async () => {
     await tag.click();
     assert.strictEqual(await page.locator('.cat-menu').count(), 0);
   });
+});
+
+test('여러 품목이 함께 든 주문은 수제비+칼국수 로 표시되고 메뉴에서도 고를 수 있음', async () => {
+  const rows = [['수취인명', '상품명', '수량', '전화번호', '주소'],
+    ['가', '칼국수+수제비 세트', 1, '01011112222', '서울'],
+    ['나', '생칼국수 1kg', 1, '01033334444', '부산']];
+  await withPage(async (page) => {
+    await upload(page, [{ name: 'combo.xlsx', mimeType: T, buffer: mkXlsx(rows) }]);
+    await page.waitForFunction(() => window.__po.state.files.length === 1 && !window.__po.state.busy);
+    await typeTerms(page, '수제비, 칼국수');
+    const r = await page.evaluate(() => window.__po.state.rows.map((x) => [x.category, x.included, x.warns.includes('ambiguous')]));
+    assert.deepStrictEqual(r, [['수제비+칼국수', true, false], ['칼국수', true, false]]);
+    assert.match(await page.textContent('#termResults'), /수제비\+칼국수 1건/);
+    assert.match(await page.textContent('#tab-check'), /확인 필요 없음/);
+    // 칼국수 주문을 메뉴에서 '수제비+칼국수'로 바꾸기
+    await page.click('#previewTable tbody tr:nth-child(2) .cat-tag');
+    await page.click('.cat-menu .cat-opt:has-text("함께 주문")');
+    assert.strictEqual(await page.evaluate(() => window.__po.state.rows[1].category), '수제비+칼국수');
+    // 수제비만 적어도 조합 주문은 포함
+    await typeTerms(page, '수제비');
+    assert.deepStrictEqual(await page.evaluate(() => window.__po.state.rows.map((x) => x.included)), [true, true]);
+  });
+});
+
+test('④ 참고 데이터: 단골고객 파일 → 조건으로 뽑기 → 주문과 대조(★) → 엑셀로 받기, 다음에도 남음', async () => {
+  const browser = await chromium.launch({ env: { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' } });
+  try {
+    const ctx = await browser.newContext({ acceptDownloads: true });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(url);
+    await upload(page, [sample('스마트스토어_주문샘플.xlsx'), sample('쿠팡_주문샘플.xlsx')]);
+    await page.waitForFunction(() => window.__po.state.files.length === 2 && !window.__po.state.busy);
+    await page.setInputFiles('#dataInput', [sample('단골고객_샘플.xlsx')]);
+    await page.waitForSelector('#dataBody:not([hidden])');
+    assert.match(await page.textContent('#dataInfo'), /5행/);
+    // 주문과 겹치는 단골: 김하늘(전화 일치), 최민준, 홍길순 → 발주 표에 ★
+    const stars = await page.evaluate(() => window.__po.state.rows.filter((r) => r.refIdx >= 0).map((r) => r.name).sort());
+    assert.deepStrictEqual(stars, ['김하늘', '최민준', '홍길순']);
+    assert.match(await page.textContent('#marketLine'), /참고 데이터 고객 3건/);
+    // 조건: VIP 이면서 탈퇴 아님
+    await page.fill('#dataQuery', '등급:VIP -탈퇴');
+    await page.press('#dataQuery', 'Enter');
+    assert.match(await page.textContent('#dataSummary'), /3행 뽑음/);
+    await page.check('#dataMatchOrders');
+    assert.match(await page.textContent('#dataSummary'), /2행 뽑음/); // 김하늘, 홍길순
+    // 메모 열 빼고 받기
+    await page.click('#dataCols .col-chip:has-text("메모")');
+    const [d] = await Promise.all([page.waitForEvent('download'), page.click('#dataDownload')]);
+    assert.match(d.suggestedFilename(), /^발췌_단골고객_샘플_\d{8}_\d{4}\.xlsx$/);
+    const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'po-')), 'ref.xlsx');
+    await d.saveAs(out);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(out);
+    const ws = wb.getWorksheet('발췌');
+    assert.deepStrictEqual(ws.getRow(1).values.slice(1), ['고객명', '연락처', '지역', '등급', '누적주문']);
+    assert.deepStrictEqual([ws.getCell('A2').value, ws.getCell('A3').value], ['김하늘', '홍길순']);
+    assert.strictEqual(ws.getCell('B2').value, '010-1234-5678');
+    assert.strictEqual(ws.getCell('E2').value, 12);
+    // 다시 열어도 데이터·조건이 남아 있음
+    const page2 = await ctx.newPage();
+    await page2.goto(url);
+    await page2.waitForSelector('#dataBody:not([hidden])');
+    assert.strictEqual(await page2.inputValue('#dataQuery'), '등급:VIP -탈퇴');
+    assert.deepStrictEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
 });

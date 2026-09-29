@@ -342,14 +342,114 @@
     var seen = {}, out = [];
     String(text || '').split(/[,，、;\n]+/).forEach(function (chunk) {
       var words = chunk.trim().split(/\s+/).filter(Boolean);
-      var pos = words.filter(function (w) { return w.charAt(0) !== '-'; });
       var neg = words.filter(function (w) { return w.charAt(0) === '-' && w.length > 1; });
-      var name = pos.join(' ');
+      var posWords = words.filter(function (w) { return w.charAt(0) !== '-'; });
+      // '수제비+칼국수' 처럼 + 로 이은 품목은 함께 주문한 경우 (두 단어 모두 포함)
+      var combo = posWords.join('').indexOf('+') !== -1;
+      var pos = posWords.join(' ').split(/[+\s]+/).filter(Boolean);
+      var name = combo ? pos.join('+') : pos.join(' ');
       if (!name || seen[norm(name)]) return;
       seen[norm(name)] = true;
-      out.push({ name: name, keywords: (pos.length > 1 ? [pos.map(norm).join('&')] : []).concat(neg) });
+      out.push({ name: name, keywords: (pos.length > 1 ? [pos.map(norm).join('&')] : []).concat(neg), parts: combo ? pos : null });
     });
     return out;
+  }
+
+  /* ---------- 참고 데이터 (단골고객 리스트 등) ---------- */
+
+  /** 2차원 배열 → { headers, rows } : 앞쪽 20행 중 칸이 2개 이상 찬 첫 행을 머리글로 */
+  function parseDataTable(rows) {
+    rows = rows || [];
+    var hr = -1;
+    for (var i = 0; i < Math.min(rows.length, 20); i++) {
+      if ((rows[i] || []).filter(function (c) { return cellText(c) !== ''; }).length >= 2) { hr = i; break; }
+    }
+    if (hr === -1) return { headers: [], rows: [] };
+    var width = 0;
+    rows.slice(hr).forEach(function (r) { width = Math.max(width, (r || []).length); });
+    var seen = {};
+    var headers = [];
+    for (var c = 0; c < width; c++) {
+      var h = cellText(rows[hr][c]) || ('열' + (c + 1));
+      while (seen[h]) h += '_';
+      seen[h] = true;
+      headers.push(h);
+    }
+    var body = rows.slice(hr + 1).map(function (r) {
+      return headers.map(function (_, c) { return cellText((r || [])[c]); });
+    }).filter(function (r) { return r.some(Boolean); });
+    return { headers: headers, rows: body };
+  }
+
+  /**
+   * 발췌 조건 글 → 조건 목록
+   * 쉼표 = 또는, 띄어쓰기 = 그리고, '열이름:값' = 그 열에서만, '-단어' = 제외
+   * 예) '서울 VIP, 등급:골드, -탈퇴'
+   */
+  function parseDataQuery(text) {
+    var groups = [], exclude = [];
+    String(text || '').split(/[,，、;\n]+/).forEach(function (chunk) {
+      var conds = [];
+      chunk.trim().split(/\s+/).filter(Boolean).forEach(function (w) {
+        var neg = w.charAt(0) === '-' && w.length > 1;
+        if (neg) w = w.slice(1);
+        var m = w.match(/^([^:：=]+)[:：=](.+)$/);
+        var cond = m ? { col: m[1], value: norm(m[2]) } : { col: null, value: norm(w) };
+        if (!cond.value) return;
+        if (neg) exclude.push(cond); else conds.push(cond);
+      });
+      if (conds.length) groups.push(conds);
+    });
+    return { groups: groups, exclude: exclude };
+  }
+
+  function findCol(headers, name) {
+    var n = norm(name), i;
+    for (i = 0; i < headers.length; i++) if (norm(headers[i]) === n) return i;
+    for (i = 0; i < headers.length; i++) if (norm(headers[i]).indexOf(n) !== -1) return i;
+    return -2; // 없는 열 → 어떤 행과도 맞지 않음
+  }
+
+  function condHit(row, headers, cond) {
+    if (cond.col == null) return row.some(function (v) { return norm(v).indexOf(cond.value) !== -1; });
+    var c = findCol(headers, cond.col);
+    return c >= 0 && norm(row[c]).indexOf(cond.value) !== -1;
+  }
+
+  /** 조건에 맞는 행의 번호 목록 */
+  function filterDataRows(table, query) {
+    var out = [];
+    table.rows.forEach(function (row, i) {
+      if (query.exclude.some(function (c) { return condHit(row, table.headers, c); })) return;
+      if (query.groups.length && !query.groups.some(function (g) { return g.every(function (c) { return condHit(row, table.headers, c); }); })) return;
+      out.push(i);
+    });
+    return out;
+  }
+
+  /** 조건에 적힌 '열이름:'이 실제로 없는 열인지 */
+  function unknownQueryColumns(table, query) {
+    var bad = {};
+    query.groups.concat([query.exclude]).forEach(function (g) {
+      g.forEach(function (c) { if (c.col != null && findCol(table.headers, c.col) < 0) bad[c.col] = true; });
+    });
+    return Object.keys(bad);
+  }
+
+  /** 참고 데이터의 전화번호·이름 열 (주문과 대조용) */
+  function customerColumns(headers) {
+    var normed = headers.map(norm);
+    var phone = -1, name = -1;
+    normed.forEach(function (h, i) {
+      if (phone === -1 && PHONE_WORD.test(h) && !PHONE_EXTRA.test(h)) phone = i;
+      if (name === -1 && !PHONE_WORD.test(h) && !ADDRESS_WORD.test(h) && (/^(이름|성명|성함|고객명|고객|회원명|수취인|수취인명|수령인|받는분|받는사람|주문자|주문자명|구매자|구매자명|닉네임)$/.test(h) || /(고객|회원)(명|이름)$/.test(h))) name = i;
+    });
+    return { phone: phone, name: name };
+  }
+
+  function phoneDigits(v) {
+    var ph = normalizePhone(v);
+    return ph.valid ? ph.value.replace(/\D/g, '') : '';
   }
 
   /**
@@ -461,6 +561,13 @@
   var BLOCKING = { name: 1, item: 1, phone: 1, 'phone-short': 1, address: 1, qty: 1 };
 
   var api = {
+    parseDataTable: parseDataTable,
+    parseDataQuery: parseDataQuery,
+    filterDataRows: filterDataRows,
+    unknownQueryColumns: unknownQueryColumns,
+    customerColumns: customerColumns,
+    phoneDigits: phoneDigits,
+    norm: norm,
     OUTPUT_COLUMNS: OUTPUT_COLUMNS,
     FIELD_SYNONYMS: FIELD_SYNONYMS,
     FIELD_LABEL: FIELD_LABEL,

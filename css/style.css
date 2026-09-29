@@ -194,6 +194,23 @@ body {
 .term-chip.none:hover { color: var(--text); }
 .term-all { margin: 4px 0; font-size: 14px; color: var(--muted); }
 
+/* 참고 데이터 */
+.data-drop { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 10px; padding: 12px 14px; border: 2px dashed var(--line); border-radius: 10px; background: var(--surface-2); }
+.data-drop.drag { border-color: var(--primary); background: var(--accent-soft); }
+.data-drop.loaded { border-style: solid; }
+.toggle-row { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 6px 0; cursor: pointer; }
+.toggle-row input { width: 18px; height: 18px; accent-color: var(--primary); }
+.col-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+.col-chip { font-family: inherit; font-size: 13px; padding: 4px 10px; border-radius: 14px; border: 1px solid var(--line); background: var(--card); color: var(--muted); cursor: pointer; text-decoration: line-through; }
+.col-chip[aria-pressed="true"] { background: var(--accent-soft); color: var(--primary-text); border-color: transparent; text-decoration: none; }
+.data-summary { font-size: 14px; margin: 6px 0; }
+.data-summary .warn-text { color: var(--warn); }
+.data-wrap { max-height: 420px; overflow: auto; }
+.data-wrap td { white-space: nowrap; }
+.data-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.star { color: var(--warn); font-size: 14px; margin-left: 3px; vertical-align: middle; }
+.term-chip.combo { background: var(--ok-soft); color: var(--ok); }
+
 /* 미리보기 */
 .empty { margin-top: 12px; padding: 28px; text-align: center; color: var(--muted); background: var(--surface-2); border-radius: 8px; }
 .notice-box { margin: 8px 0; padding: 10px 14px; border-radius: 8px; background: var(--surface-2); font-size: 14px; }

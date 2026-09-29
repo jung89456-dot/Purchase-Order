@@ -33,6 +33,19 @@ const samples = ['스마트스토어_주문샘플.xlsx', '쿠팡_주문샘플.xl
       await page.waitForFunction(() => !window.__po || (window.__po.state.files.length === 2 && !window.__po.state.busy));
       await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(outDir, `${version}${suffix || '-result'}.png`), fullPage: suffix !== '-dark' });
+      // 참고 데이터 칸 (v9 부터)
+      if (!suffix && (await page.locator('#dataInput').count())) {
+        await page.setInputFiles('#dataInput', [{
+          name: '단골고객_샘플.xlsx',
+          mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          buffer: fs.readFileSync(path.join(ROOT, 'samples', '단골고객_샘플.xlsx')),
+        }]);
+        await page.waitForSelector('#dataBody:not([hidden])');
+        await page.fill('#dataQuery', '등급:VIP -탈퇴');
+        await page.press('#dataQuery', 'Enter');
+        await page.locator('#step-data').screenshot({ path: path.join(outDir, `${version}-data.png`) });
+        await page.locator('#step-preview').screenshot({ path: path.join(outDir, `${version}-preview.png`) });
+      }
       // 다운로드 완료 화면 (v6 부터)
       if (!suffix && (await page.locator('#doneBox').count())) {
         await Promise.all([page.waitForEvent('download'), page.click('#downloadBtn')]);

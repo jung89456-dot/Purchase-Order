@@ -197,6 +197,29 @@ test('사용자가 입력한 품목 — 쉼표로 구분, 띄어 쓴 단어는 �
   assert.deepStrictEqual(P.parseTerms('  ,  '), []);
 });
 
+test('품목 입력: 수제비+칼국수 는 함께 주문한 조합', () => {
+  const cat = P.parseTerms('수제비, 칼국수, 수제비+칼국수');
+  assert.deepStrictEqual(cat[2], { name: '수제비+칼국수', keywords: ['수제비&칼국수'], parts: ['수제비', '칼국수'] });
+  assert.deepStrictEqual(P.classifyText('칼국수+수제비 세트', cat).matches.sort(), ['수제비', '수제비+칼국수', '칼국수']);
+  assert.strictEqual(P.classify('감자 수제비', cat), '수제비');
+});
+
+test('참고 데이터: 머리글 찾기, 조건(쉼표=또는, 띄어쓰기=그리고, 열:값, -제외), 고객 열', () => {
+  const t = P.parseDataTable([['단골고객 명단'], [], ['고객명', '연락처', '지역', '등급', '메모'],
+    ['김하늘', '010-1234-5678', '서울', 'VIP', ''], ['박서연', '0504-1111-2222', '경기', '일반', '탈퇴'], ['', '', '', '', ''], ['최민준', 1022223333, '대구', 'VIP', '']]);
+  assert.deepStrictEqual(t.headers, ['고객명', '연락처', '지역', '등급', '메모']);
+  assert.strictEqual(t.rows.length, 3);
+  const pick = (q) => P.filterDataRows(t, P.parseDataQuery(q)).map((i) => t.rows[i][0]);
+  assert.deepStrictEqual(pick(''), ['김하늘', '박서연', '최민준']);
+  assert.deepStrictEqual(pick('vip'), ['김하늘', '최민준']);
+  assert.deepStrictEqual(pick('서울 VIP'), ['김하늘']);
+  assert.deepStrictEqual(pick('등급:일반, 대구'), ['박서연', '최민준']);
+  assert.deepStrictEqual(pick('-탈퇴'), ['김하늘', '최민준']);
+  assert.deepStrictEqual(P.unknownQueryColumns(t, P.parseDataQuery('없는열:1')), ['없는열']);
+  assert.deepStrictEqual(P.customerColumns(t.headers), { phone: 1, name: 0 });
+  assert.strictEqual(P.phoneDigits(t.rows[2][1]), '01022223333');
+});
+
 test('이미 발송된 주문 제외, +82 번호 정규화', () => {
   assert.strictEqual(P.excludeReason(['배송완료']), '배송완료');
   assert.ok(P.isShippedStatus('구매확정'));

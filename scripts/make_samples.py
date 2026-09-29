@@ -90,6 +90,25 @@ def make_coupang():
     wb.save(OUT / "쿠팡_주문샘플.xlsx")
 
 
+def make_regulars():
+    """단골고객 리스트 샘플 (④ 참고 데이터용). 샘플 주문의 일부 고객이 들어 있다."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "단골고객"
+    ws.append(["단골고객 명단 (2026년 9월)"])
+    ws.append([])
+    ws.append(["고객명", "연락처", "지역", "등급", "누적주문", "메모"])
+    for row in [
+        ("김하늘", "010-1234-5678", "서울", "VIP", 12, "칼국수 자주 주문"),
+        ("홍길순", "0502-3333-4444", "인천", "VIP", 8, "문 앞 배송 선호"),
+        ("최민준", "010-2222-3333", "대구", "일반", 3, ""),
+        ("송하윤", "010-8080-9090", "서울", "일반", 2, "탈퇴 예정"),
+        ("문지호", "010-6060-7070", "부산", "VIP", 15, "명절 선물 대량 주문"),
+    ]:
+        ws.append(list(row))
+    wb.save(OUT / "단골고객_샘플.xlsx")
+
+
 def make_encrypted():
     """비밀번호(1234)가 걸린 스마트스토어 샘플. msoffcrypto-tool 필요."""
     try:
@@ -105,5 +124,6 @@ def make_encrypted():
 if __name__ == "__main__":
     make_smartstore()
     make_coupang()
+    make_regulars()
     make_encrypted()
     print("samples written to", OUT)
