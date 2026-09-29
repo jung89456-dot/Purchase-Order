@@ -121,7 +121,7 @@
         <h2 id="h-data">④ 추가 데이터 <span class="muted small">(선택)</span></h2>
         <button type="button" class="link-btn" id="dataClear" hidden>데이터 지우기</button>
       </div>
-      <p class="muted small">단골리스트 같은 엑셀을 올리고 필요한 고객 이름을 적으면, 그 고객의 내용이 발주서 엑셀에 함께 들어갑니다. 올린 데이터는 이 브라우저에만 저장되어 다음에 열어도 남아 있습니다.</p>
+      <p class="muted small">단골리스트 같은 엑셀을 올리고 고객 이름을 적으면, 그 고객의 <b>이름·연락처·주소</b>가 발주서에 줄로 들어갑니다. 올린 파일은 이 브라우저에 저장되어 다음에 열어도 남아 있고, 적은 이름은 그날 작업에만 쓰입니다.</p>
       <div class="data-drop" id="dataDrop">
         <input type="file" id="dataInput" accept=".xlsx,.xls,.csv,.txt" class="sr-only" tabindex="-1" aria-hidden="true">
         <button type="button" class="btn secondary" id="dataPick">추가 데이터 올리기</button>
@@ -133,13 +133,13 @@
           <input type="text" id="dataQuery" class="term-input" placeholder="예: 김하늘, 문지호" autocomplete="off" spellcheck="false" aria-describedby="dataHelp">
           <button type="button" class="btn secondary" id="dataQueryClear" hidden>지우기</button>
         </div>
-        <p class="muted small" id="dataHelp">쉼표(,)로 여러 명을 적을 수 있습니다. 적은 글자가 들어 있는 행을 찾습니다. <code>등급:VIP</code>처럼 쓰면 그 열에서만 찾습니다.</p>
-        <label class="toggle-row"><input type="checkbox" id="dataWithOrder" checked> 발주서 엑셀에 함께 넣기 (‘추가 데이터’ 시트)</label>
+        <p class="muted small" id="dataHelp">쉼표(,)로 여러 명을 적을 수 있습니다. 찾은 고객은 ③ 발주서 표 맨 아래에 들어가니, 거기서 구입품목·수량을 적어 주세요.</p>
+        <label class="toggle-row"><input type="checkbox" id="dataWithOrder" checked> 발주서에 함께 넣기 (이름·연락처·주소)</label>
         <p class="data-summary" id="dataSummary" aria-live="polite"></p>
-        <div class="col-chips" id="dataCols" role="group" aria-label="넣을 열"></div>
+        <p class="muted small" id="dataCols"></p>
         <div class="table-wrap data-wrap"><table id="dataTable"><thead></thead><tbody></tbody></table></div>
         <div class="data-actions">
-          <button type="button" class="btn secondary" id="dataDownload">이 내용만 엑셀로 받기</button>
+          <button type="button" class="btn secondary" id="dataDownload">찾은 고객만 엑셀로 받기</button>
         </div>
       </div>
     </section>

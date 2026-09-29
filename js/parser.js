@@ -444,15 +444,16 @@
     return Object.keys(bad);
   }
 
-  /** 참고 데이터의 전화번호·이름 열 (주문과 대조용) */
+  /** 추가 데이터의 이름·전화번호·주소 열 (발주서에 넣기·주문과 대조용) */
   function customerColumns(headers) {
     var normed = headers.map(norm);
-    var phone = -1, name = -1;
+    var phone = -1, name = -1, address = -1;
     normed.forEach(function (h, i) {
       if (phone === -1 && PHONE_WORD.test(h) && !PHONE_EXTRA.test(h)) phone = i;
+      if (address === -1 && ADDRESS_WORD.test(h) && !ADDRESS_SKIP.test(h) && !PHONE_WORD.test(h)) address = i;
       if (name === -1 && !PHONE_WORD.test(h) && !ADDRESS_WORD.test(h) && (/^(이름|성명|성함|고객명|고객|회원명|수취인|수취인명|수령인|받는분|받는사람|주문자|주문자명|구매자|구매자명|닉네임)$/.test(h) || /(고객|회원)(명|이름)$/.test(h))) name = i;
     });
-    return { phone: phone, name: name };
+    return { phone: phone, name: name, address: address };
   }
 
   function phoneDigits(v) {

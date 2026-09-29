@@ -487,7 +487,7 @@ test('여러 품목이 함께 든 주문은 수제비+칼국수 로 표시되고
   });
 });
 
-test('④ 추가 데이터: 단골리스트 올리고 고객 이름 적기 → 발주서 엑셀에 ‘추가 데이터’ 시트로 함께', async () => {
+test('④ 추가 데이터: 이름을 적으면 이름·연락처·주소가 당일발주 시트에 줄로 들어감', async () => {
   const browser = await chromium.launch({ env: { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' } });
   try {
     const ctx = await browser.newContext({ acceptDownloads: true });
@@ -499,52 +499,49 @@ test('④ 추가 데이터: 단골리스트 올리고 고객 이름 적기 → �
     await page.waitForFunction(() => window.__po.state.files.length === 2 && !window.__po.state.busy);
     await page.setInputFiles('#dataInput', [sample('단골고객_샘플.xlsx')]);
     await page.waitForSelector('#dataBody:not([hidden])');
-    assert.match(await page.textContent('#dataInfo'), /5행/);
-    // 이름을 적기 전에는 아무것도 넣지 않음
-    assert.match(await page.textContent('#dataSummary'), /고객 이름 등을 적으면/);
-    // 주문 중 단골에게 ★
-    const stars = await page.evaluate(() => window.__po.state.rows.filter((r) => r.refIdx >= 0).map((r) => r.name).sort());
-    assert.deepStrictEqual(stars, ['김하늘', '최민준', '홍길순']);
-    // 고객 이름 적기 (없는 이름은 알려 줌)
-    await page.fill('#dataQuery', '김하늘, 문지호, 박민수');
+    assert.match(await page.textContent('#dataCols'), /이름 ← ‘고객명’ 열 · 연락처 ← ‘연락처’ 열 · 주소 ← ‘주소’ 열/);
+    // 이름 적기 전에는 발주서에 아무것도 추가되지 않음
+    assert.strictEqual(await included(page), 7);
+    await page.fill('#dataQuery', '문지호, 송하윤, 박민수');
     await page.press('#dataQuery', 'Enter');
     const sum = await page.textContent('#dataSummary');
-    assert.match(sum, /2행 찾음/);
+    assert.match(sum, /2명 찾음/);
     assert.match(sum, /‘박민수’은\(는\) 찾지 못했습니다/);
-    assert.match(await page.textContent('#actionText'), /추가 데이터 2행 함께/);
-    // 메모 열은 빼기
-    await page.click('#dataCols .col-chip:has-text("메모")');
-    // 발주서 엑셀 받기 → 두 번째 시트
-    const [d] = await Promise.all([page.waitForEvent('download'), page.click('#downloadBtn')]);
+    // 발주서 표 맨 아래에 두 줄 추가 (품목 필터와 상관없이 포함)
+    assert.strictEqual(await included(page), 9);
+    const extra = await page.evaluate(() => window.__po.state.rows.filter((r) => r.extra).map((r) => [r.name, r.phone, r.address, r.item]));
+    assert.deepStrictEqual(extra, [
+      ['송하윤', '010-8080-9090', '서울특별시 마포구 월드컵북로 400', ''],
+      ['문지호', '010-6060-7070', '부산광역시 수영구 광안해변로 219', ''],
+    ]);
+    assert.match(await page.textContent('#actionText'), /추가 데이터 2건 포함/);
+    // 표에서 구입품목 적기
+    const last = page.locator('#previewTable tbody tr[data-uid]').last();
+    await last.locator('td[data-field="item"]').click();
+    await page.keyboard.type('수제비 2봉');
+    await page.keyboard.press('Enter');
+    // 다운로드: 품목이 빈 줄이 하나 남아 점검창 → 그대로 다운로드
+    await page.click('#downloadBtn');
+    await page.waitForSelector('#confirmDialog[open]');
+    assert.match(await page.textContent('#confirmBody'), /송하윤 — 품목 없음/);
+    const [d] = await Promise.all([page.waitForEvent('download'), page.click('#confirmOk')]);
     const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'po-')), 'po.xlsx');
     await d.saveAs(out);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(out);
-    assert.deepStrictEqual(wb.worksheets.map((w) => w.name), ['당일발주', '추가 데이터']);
-    assert.strictEqual(wb.getWorksheet('당일발주').rowCount, 8);
-    const ws = wb.getWorksheet('추가 데이터');
-    assert.deepStrictEqual(ws.getRow(1).values.slice(1), ['고객명', '연락처', '지역', '등급', '누적주문']);
-    assert.deepStrictEqual([ws.getCell('A2').value, ws.getCell('A3').value], ['김하늘', '문지호']);
-    assert.strictEqual(ws.getCell('B2').value, '010-1234-5678');
-    assert.strictEqual(ws.getCell('E2').value, 12);
-    assert.strictEqual(ws.getCell('A1').fill.fgColor.argb, 'FF9BC2E6');
-    // 함께 넣기를 끄면 발주서만
+    assert.deepStrictEqual(wb.worksheets.map((w) => w.name), ['당일발주']);
+    const ws = wb.getWorksheet('당일발주');
+    assert.strictEqual(ws.rowCount, 10);
+    assert.deepStrictEqual(ws.getRow(9).values.slice(1, 6), ['송하윤', '', 1, '010-8080-9090', '서울특별시 마포구 월드컵북로 400']);
+    assert.deepStrictEqual(ws.getRow(10).values.slice(1, 6), ['문지호', '수제비 2봉', 1, '010-6060-7070', '부산광역시 수영구 광안해변로 219']);
+    // 끄면 빠짐
     await page.uncheck('#dataWithOrder');
-    assert.doesNotMatch(await page.textContent('#actionText'), /추가 데이터/);
-    const [d2] = await Promise.all([page.waitForEvent('download'), page.click('#downloadBtn')]);
-    const out2 = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'po-')), 'po2.xlsx');
-    await d2.saveAs(out2);
-    const wb2 = new ExcelJS.Workbook();
-    await wb2.xlsx.readFile(out2);
-    assert.deepStrictEqual(wb2.worksheets.map((w) => w.name), ['당일발주']);
-    // 이 내용만 따로 받기
-    const [d3] = await Promise.all([page.waitForEvent('download'), page.click('#dataDownload')]);
-    assert.match(d3.suggestedFilename(), /^추가데이터_단골고객_샘플_\d{8}_\d{4}\.xlsx$/);
-    // 다시 열어도 데이터·적은 내용이 남아 있음
+    assert.strictEqual(await included(page), 7);
+    // 다시 열면 올린 파일은 남고, 적은 이름은 비어 있음 (다음 날 같은 고객이 또 들어가지 않게)
     const page2 = await ctx.newPage();
     await page2.goto(url);
     await page2.waitForSelector('#dataBody:not([hidden])');
-    assert.strictEqual(await page2.inputValue('#dataQuery'), '김하늘, 문지호, 박민수');
+    assert.strictEqual(await page2.inputValue('#dataQuery'), '');
     assert.deepStrictEqual(errors, []);
   } finally {
     await browser.close();

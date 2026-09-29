@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v10';
+  var APP_VERSION = 'v11';
   var HISTORY_KEY = 'po.history.v1'; // 지난 발주 기록 (주문 키의 해시만 저장)
   var USED_KEY = 'po.used';
   var HISTORY_DAYS = 14;
@@ -343,6 +343,14 @@
     });
     var firstFile = {};
     state.rows.forEach(function (r) {
+      if (r.extra) {
+        // 추가 데이터에서 직접 고른 고객 → 상태·중복·품목 필터 없이 포함
+        r.refIdx = -1; r.matches = []; r.combo = null;
+        r.category = r.categoryManual || '';
+        r.reasons = []; r.warns = [];
+        r.included = r.override != null ? r.override : true;
+        return;
+      }
       var reasons = [];
       var warns = [];
       var status = r.excluded || stopped[r.key];
@@ -432,6 +440,7 @@
   function fmt(v) { return v == null ? '' : String(v); }
 
   function render() {
+    syncExtraRows();
     compute();
     renderUpload();
     renderFiles();
@@ -617,7 +626,7 @@
     var cb = el('input', { type: 'checkbox', tabindex: '-1', 'aria-label': (r.name || '이름 없음') + ' 주문 발주 포함' });
     cb.addEventListener('change', function () { setIncluded(tr, r, cb.checked); });
     tdc.appendChild(cb);
-    tdc.appendChild(el('span', { className: 'mk ' + r.market, title: r.source, 'aria-label': r.source }, r.market === 'smartstore' ? 'N' : r.market === 'coupang' ? 'C' : '·'));
+    tdc.appendChild(el('span', { className: 'mk ' + r.market, title: r.source, 'aria-label': r.source }, r.market === 'smartstore' ? 'N' : r.market === 'coupang' ? 'C' : r.market === 'extra' ? '추' : '·'));
     tdc.appendChild(el('span', { className: 'star', title: '추가 데이터에 있는 고객', 'aria-label': '추가 데이터에 있는 고객' }, '★'));
     tr.appendChild(tdc);
 
@@ -814,7 +823,7 @@
     if (r.refIdx >= 0) star.title = '추가 데이터(' + ref.name + ')에 있는 고객';
     tr.querySelector('.c-check input').checked = r.included;
     var tag = tr.querySelector('.cat-tag');
-    var catLabel = r.category || (state.catalog.length ? '해당 없음' : '전체');
+    var catLabel = r.category || (r.extra ? '직접 추가' : state.catalog.length ? '해당 없음' : '전체');
     tag.textContent = catLabel + ' ▾';
     tag.classList.toggle('manual', r.categoryManual != null);
     tag.setAttribute('aria-label', '품목: ' + catLabel + (r.categoryManual != null ? ' (직접 지정)' : '') + ', 바꾸려면 누르세요');
@@ -917,8 +926,8 @@
         txt.appendChild(document.createTextNode(' · '));
         txt.appendChild(el('span', { className: 'warn-text' }, '빨간 칸 ' + problems + '건 확인 필요'));
       }
-      var extraNow = refExtra();
-      if (extraNow) txt.appendChild(document.createTextNode(' · 추가 데이터 ' + extraNow.rows.length + '행 함께'));
+      var extraNow = inc.filter(function (r) { return r.extra; }).length;
+      if (extraNow) txt.appendChild(document.createTextNode(' (추가 데이터 ' + extraNow + '건 포함)'));
       if (ld && inc.length) txt.appendChild(el('span', { className: 'changed-note' }, ' · 받은 뒤 내용이 바뀌었습니다 — 다시 받아 주세요'));
     }
     var demoOnly = isDemoOnly();
@@ -1216,8 +1225,7 @@
     var str = rows.map(function (r) { return [r.uid].concat(EDIT_FIELDS.map(function (f) { return fmt(r[f]); })).join('\u0001'); }).join('\u0002');
     var h = 5381;
     for (var i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
-    var extra = refExtra();
-    return rows.length + ':' + h + (extra ? ':' + extra.rows.length + ':' + ref.query : '');
+    return rows.length + ':' + h;
   }
 
   function download() {
@@ -1240,8 +1248,8 @@
       btn.disabled = true;
       var demo = isDemoOnly();
       var fileName = (demo ? '샘플_' : '') + POExporter.defaultFileName();
-      var extra = refExtra();
-      return POExporter.buildWorkbook(ExcelJS, rows, extra).xlsx.writeBuffer().then(function (buf) {
+      var extraCount = rows.filter(function (r) { return r.extra; }).length;
+      return POExporter.buildWorkbook(ExcelJS, rows).xlsx.writeBuffer().then(function (buf) {
         var blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
         return saveFile(blob, fileName);
       }).then(function (saved) {
@@ -1249,7 +1257,7 @@
         if (!demo) recordHistory(rows);
         state.lastDownload = { name: fileName, count: rows.length, sig: contentSig(rows), demo: demo };
         renderStats();
-        toast('✅ ' + fileName + ' (' + rows.length + '건' + (extra ? ' + 추가 데이터 ' + extra.rows.length + '행' : '') + ') 저장했습니다.');
+        toast('✅ ' + fileName + ' (' + rows.length + '건' + (extraCount ? ', 추가 데이터 ' + extraCount + '건 포함' : '') + ') 저장했습니다.');
       }).catch(function (e) {
         toast('엑셀을 저장하지 못했습니다: ' + (e && e.message || e));
       }).then(function () { btn.disabled = false; });
@@ -1267,6 +1275,7 @@
         state.view = 'included';
         state.limit = PAGE;
         state.lastDownload = null;
+        ref.query = ''; $('dataQuery').value = '';
         setBusy(null);
         render();
         $('pickBtn').focus();
@@ -1314,7 +1323,8 @@
         ref.hidden = d.hidden && typeof d.hidden === 'object' ? d.hidden : {};
         ref.withOrder = d.withOrder !== false;
       }
-      ref.query = localStorage.getItem(REF_QUERY_KEY) || '';
+      // 적은 이름은 그날 작업용이라 저장하지 않는다 (다음 날 같은 고객이 또 발주서에 들어가지 않게)
+      localStorage.removeItem(REF_QUERY_KEY);
     } catch (e) { /* 저장된 데이터가 없거나 읽을 수 없으면 빈 상태로 */ }
     $('dataQuery').value = ref.query;
     $('dataWithOrder').checked = ref.withOrder;
@@ -1323,7 +1333,6 @@
 
   function saveRef() {
     try {
-      localStorage.setItem(REF_QUERY_KEY, ref.query);
       if (ref.rows.length) {
         localStorage.setItem(REF_KEY, JSON.stringify({ name: ref.name, headers: ref.headers, rows: ref.rows, hidden: ref.hidden, withOrder: ref.withOrder }));
       } else {
@@ -1359,10 +1368,6 @@
     return -1;
   }
 
-  function refVisibleCols() {
-    return ref.headers.map(function (_, i) { return i; }).filter(function (i) { return !ref.hidden[ref.headers[i]]; });
-  }
-
   // 적은 내용(고객 이름 등)에 해당하는 행. 아무것도 적지 않으면 없음 (명단 전체가 발주서에 섞이지 않게)
   function refResult() {
     var q = P.parseDataQuery(ref.query);
@@ -1370,17 +1375,42 @@
     return { idx: P.filterDataRows(ref, q), unknown: P.unknownQueryColumns(ref, q), missing: P.unmatchedGroups(ref, q), empty: false };
   }
 
-  // 발주서 엑셀에 함께 넣을 추가 데이터 (없으면 null)
-  function refExtra() {
-    if (!ref.withOrder || !ref.rows.length) return null;
-    var res = refResult();
-    var vis = refVisibleCols();
-    if (!res.idx.length || !vis.length) return null;
-    return {
-      title: '추가 데이터',
-      headers: vis.map(function (i) { return ref.headers[i]; }),
-      rows: res.idx.map(function (ri) { return vis.map(function (i) { return ref.rows[ri][i]; }); })
+  // 추가 데이터에서 찾은 고객을 발주서 줄로 만든다: 이름 → 수취자명, 연락처 → 전화번호, 주소 → 주소
+  function makeExtraRow(ri) {
+    var src = ref.rows[ri];
+    var c = P.customerColumns(ref.headers);
+    var r = {
+      name: c.name >= 0 ? src[c.name] : '',
+      item: '', qty: 1,
+      phone: c.phone >= 0 ? P.normalizePhone(src[c.phone]).value : '',
+      address: c.address >= 0 ? src[c.address] : '',
+      memo: '', product: '', option: '',
+      source: '추가 데이터', market: 'extra', key: 'x:' + ri, keyKind: 'x', excluded: '', issues: [],
+      extra: true, refRow: ri, uid: ++seq, fileId: 'extra', override: null, categoryManual: null, qtyDefaulted: false
     };
+    r.orig = {};
+    EDIT_FIELDS.forEach(function (f) { r.orig[f] = r[f]; });
+    validate(r);
+    return r;
+  }
+
+  // 적은 이름에 해당하는 고객 줄을 발주서에 맞춘다 (이미 있는 줄은 고친 내용 유지)
+  function syncExtraRows() {
+    var want = {};
+    if (ref.withOrder && ref.rows.length) refResult().idx.forEach(function (i) { want[i] = true; });
+    state.rows = state.rows.filter(function (r) { return !r.extra || want[r.refRow]; });
+    var have = {};
+    state.rows.forEach(function (r) { if (r.extra) have[r.refRow] = true; });
+    Object.keys(want).map(Number).sort(function (a, b) { return a - b; }).forEach(function (i) {
+      if (!have[i]) state.rows.push(makeExtraRow(i));
+    });
+  }
+
+  function extraRows() { return state.rows.filter(function (r) { return r.extra; }); }
+
+  function refVisibleCols() {
+    var c = P.customerColumns(ref.headers);
+    return [c.name, c.phone, c.address];
   }
 
   function renderRef() {
@@ -1395,14 +1425,11 @@
     $('dataQueryClear').hidden = !ref.query;
     if (!has) return;
 
-    var cols = $('dataCols');
-    cols.innerHTML = '';
-    cols.appendChild(el('span', { className: 'muted small' }, '넣을 열 (눌러서 빼기):'));
-    ref.headers.forEach(function (h) {
-      var b = el('button', { type: 'button', className: 'col-chip', 'aria-pressed': String(!ref.hidden[h]), title: '눌러서 이 열을 넣거나 뺍니다' }, h);
-      b.addEventListener('click', function () { ref.hidden[h] = !ref.hidden[h]; saveRef(); renderRef(); });
-      cols.appendChild(b);
-    });
+    var cc = P.customerColumns(ref.headers);
+    var colNote = [['이름', cc.name], ['연락처', cc.phone], ['주소', cc.address]].map(function (p) {
+      return p[0] + ' ← ' + (p[1] >= 0 ? '‘' + ref.headers[p[1]] + '’ 열' : '없음');
+    }).join(' · ');
+    $('dataCols').textContent = '가져오는 내용: ' + colNote;
 
     var res = refResult();
     var vis = refVisibleCols();
@@ -1411,8 +1438,8 @@
     if (res.empty) {
       sum.appendChild(document.createTextNode('위 칸에 고객 이름 등을 적으면 해당하는 내용을 찾습니다. (전체 ' + ref.rows.length + '행)'));
     } else {
-      sum.appendChild(el('b', null, res.idx.length + '행'));
-      sum.appendChild(document.createTextNode(' 찾음' + (ref.withOrder && res.idx.length ? ' → 발주서 엑셀에 함께 들어갑니다' : '')));
+      sum.appendChild(el('b', null, res.idx.length + '명'));
+      sum.appendChild(document.createTextNode(' 찾음' + (ref.withOrder && res.idx.length ? ' → ③ 발주서 표 맨 아래에 줄로 들어갔습니다. 구입품목·수량을 적어 주세요.' : '')));
     }
     var notes = [];
     if (res.missing.length) notes.push('‘' + res.missing.join(', ') + '’은(는) 찾지 못했습니다');
@@ -1425,12 +1452,12 @@
     tbody.innerHTML = '';
     $('dataTable').parentNode.hidden = res.empty;
     var htr = el('tr');
-    vis.forEach(function (i) { htr.appendChild(el('th', { scope: 'col' }, ref.headers[i])); });
+    ['이름', '연락처', '주소'].forEach(function (h) { htr.appendChild(el('th', { scope: 'col' }, h)); });
     thead.appendChild(htr);
     var frag = document.createDocumentFragment();
     res.idx.slice(0, REF_PREVIEW).forEach(function (ri) {
       var tr = el('tr');
-      vis.forEach(function (i) { tr.appendChild(el('td', null, ref.rows[ri][i])); });
+      vis.forEach(function (i, k) { tr.appendChild(el('td', null, i >= 0 ? (k === 1 ? P.normalizePhone(ref.rows[ri][i]).value : ref.rows[ri][i]) : '')); });
       frag.appendChild(tr);
     });
     tbody.appendChild(frag);
@@ -1439,7 +1466,7 @@
       more.appendChild(el('td', { colspan: String(Math.max(1, vis.length)), className: 'muted' }, '미리보기는 ' + REF_PREVIEW + '행까지만 보입니다. 엑셀로 받으면 ' + res.idx.length + '행이 모두 들어갑니다.'));
       tbody.appendChild(more);
     }
-    $('dataDownload').disabled = !res.idx.length || !vis.length;
+    $('dataDownload').disabled = !res.idx.length;
   }
 
   function handleDataFile(file) {
@@ -1461,10 +1488,7 @@
         ref.hidden = {};
         buildRefIndex();
         saveRef();
-        compute();
-        renderLight();
-        renderTable();
-        renderRef();
+        render();
         toast('추가 데이터 ‘' + file.name + '’ ' + ref.rows.length + '행을 올렸습니다. 필요한 고객 이름을 적어 주세요.');
         $('dataQuery').focus();
       })
@@ -1478,10 +1502,10 @@
   function downloadRef() {
     var res = refResult();
     var vis = refVisibleCols();
-    if (!res.idx.length || !vis.length) return;
+    if (!res.idx.length) return;
     var wb = new ExcelJS.Workbook();
-    POExporter.addTableSheet(wb, '추가 데이터', vis.map(function (i) { return ref.headers[i]; }),
-      res.idx.map(function (ri) { return vis.map(function (i) { return ref.rows[ri][i]; }); }));
+    POExporter.addTableSheet(wb, '추가 데이터', ['이름', '연락처', '주소'],
+      res.idx.map(function (ri) { return vis.map(function (i, k) { return i >= 0 ? (k === 1 ? P.normalizePhone(ref.rows[ri][i]).value : ref.rows[ri][i]) : ''; }); }));
     var base = ref.name.replace(/\.[^.]+$/, '');
     var stamp = POExporter.defaultFileName().replace(/^당일발주_/, '').replace(/\.xlsx$/, '');
     var fileName = '추가데이터_' + base + '_' + stamp + '.xlsx';
@@ -1529,6 +1553,7 @@
   $('demoBtnBig').addEventListener('click', loadDemo);
   $('newStartBtn').addEventListener('click', function () {
     state.gen++;
+    ref.query = ''; $('dataQuery').value = '';
     state.files = []; state.rows = []; state.pending = {};
     state.view = 'included'; state.limit = PAGE; state.lastDownload = null;
     render();
@@ -1563,17 +1588,17 @@
   var refTimer;
   $('dataQuery').addEventListener('input', function () {
     clearTimeout(refTimer);
-    refTimer = setTimeout(function () { ref.query = $('dataQuery').value; saveRef(); renderRef(); renderStats(); }, 250);
+    refTimer = setTimeout(function () { ref.query = $('dataQuery').value; saveRef(); render(); }, 250);
   });
   $('dataQuery').addEventListener('keydown', function (e) {
     if (e.key !== 'Enter') return;
     e.preventDefault();
     clearTimeout(refTimer);
-    ref.query = $('dataQuery').value; saveRef(); renderRef(); renderStats();
+    ref.query = $('dataQuery').value; saveRef(); render();
   });
-  $('dataWithOrder').addEventListener('change', function () { ref.withOrder = $('dataWithOrder').checked; saveRef(); renderRef(); renderStats(); });
+  $('dataWithOrder').addEventListener('change', function () { ref.withOrder = $('dataWithOrder').checked; saveRef(); render(); });
   $('dataQueryClear').addEventListener('click', function () {
-    $('dataQuery').value = ''; ref.query = ''; saveRef(); renderRef(); renderStats(); $('dataQuery').focus();
+    $('dataQuery').value = ''; ref.query = ''; saveRef(); render(); $('dataQuery').focus();
   });
   $('dataDownload').addEventListener('click', downloadRef);
   $('dataClear').addEventListener('click', function () {

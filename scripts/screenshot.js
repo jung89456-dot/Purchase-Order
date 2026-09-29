@@ -41,14 +41,18 @@ const samples = ['스마트스토어_주문샘플.xlsx', '쿠팡_주문샘플.xl
           buffer: fs.readFileSync(path.join(ROOT, 'samples', '단골고객_샘플.xlsx')),
         }]);
         await page.waitForSelector('#dataBody:not([hidden])');
-        await page.fill('#dataQuery', '김하늘, 문지호');
+        await page.fill('#dataQuery', '문지호, 송하윤');
         await page.press('#dataQuery', 'Enter');
         await page.locator('#step-data').screenshot({ path: path.join(outDir, `${version}-data.png`) });
         await page.locator('#step-preview').screenshot({ path: path.join(outDir, `${version}-preview.png`) });
       }
       // 다운로드 완료 화면 (v6 부터)
       if (!suffix && (await page.locator('#doneBox').count())) {
-        await Promise.all([page.waitForEvent('download'), page.click('#downloadBtn')]);
+        const dl = page.waitForEvent('download');
+        await page.click('#downloadBtn');
+        // 점검창이 뜨면(빈 칸 등) 그대로 다운로드
+        if (await page.locator('#confirmDialog[open]').count()) await page.click('#confirmOk');
+        await dl;
         await page.waitForTimeout(300);
         await page.screenshot({ path: path.join(outDir, `${version}-done.png`) });
       }
