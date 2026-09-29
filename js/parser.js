@@ -20,8 +20,8 @@
     product: ['상품명', '등록상품명', '구입품목', '품목명', '제품명', '노출상품명(옵션명)', '노출상품명', '상품'],
     option: ['옵션정보', '등록옵션명', '옵션명', '옵션', '옵션내용', '선택옵션'],
     qty: ['수량', '구매수(수량)', '구매수', '주문수량', '수량(개)', '개수'],
-    phone: ['수취인연락처1', '수취인전화번호', '수취인휴대폰', '수취인휴대전화', '수취인핸드폰', '받는분전화번호', '받는분연락처', '받는분휴대폰', '수령인연락처', '수령인전화번호', '수하인전화번호', '휴대폰번호', '휴대폰', '핸드폰', '휴대전화', '전화번호', '연락처'],
-    phone2: ['수취인연락처2', '수취인전화번호2', '받는분전화번호2'],
+    phone: ['수취인연락처1', '수취인연락처', '수취인전화번호', '수취인휴대폰', '수취인휴대폰번호', '수취인휴대전화', '수취인핸드폰', '받는분전화번호', '받는분연락처', '받는분휴대폰', '받는사람연락처', '받는사람전화번호', '수령인연락처', '수령인전화번호', '수령자연락처', '수하인전화번호', '수하인연락처', '휴대폰번호', '휴대폰', '핸드폰', '휴대전화', '전화번호', '연락처', '연락처1', '전화번호1'],
+    phone2: ['수취인연락처2', '수취인전화번호2', '받는분전화번호2', '연락처2', '전화번호2'],
     address: ['통합배송지', '수취인주소', '받는분주소', '수령인주소', '배송지주소', '배송주소', '배송지', '주소', '수하인주소'],
     addressBase: ['기본배송지', '기본주소'],
     addressDetail: ['상세배송지', '상세주소'],
@@ -41,7 +41,15 @@
 
   // 수취인 정보는 구매자/주문자 컬럼에서 가져오지 않는다
   var RECIPIENT_FIELDS = { name: 1, phone: 1, phone2: 1, address: 1 };
-  var BUYER_RE = /구매자|주문자|구매인|주문인/;
+  var BUYER_RE = /구매자|주문자|구매인|주문인|주문고객|판매자/;
+
+  // 열 이름이 목록과 조금 달라도(‘수취인 연락처’, ‘받는사람 핸드폰’ 등) 찾기 위한 단어
+  var RECIPIENT_WORD = /수취인|수취자|수령인|수령자|받는분|받는사람|받는이|받으시는분|수하인|배송지|배송받는/;
+  var PHONE_WORD = /연락처|전화|휴대폰|핸드폰|휴대전화|폰번호|phone|mobile|(^|[가-힣])(hp|tel)\d?$/;
+  var PHONE_EXTRA = /2$|보조|추가|비상|기타|두번째/;
+  var NAME_WORD = /명$|이름|성명|성함/;
+  var ADDRESS_WORD = /주소|배송지/;
+  var ADDRESS_SKIP = /우편|메일|기본|상세|코드|번호/;
 
   var REQUIRED = ['name', 'product', 'phone', 'address'];
   var HEADER_SCAN_ROWS = 50;
@@ -67,7 +75,10 @@
     var limit = Math.min(rows.length, HEADER_SCAN_ROWS);
     for (var i = 0; i < limit; i++) {
       var score = 0;
-      (rows[i] || []).forEach(function (c) { if (KNOWN[norm(c)]) score++; });
+      (rows[i] || []).forEach(function (c) {
+        var h = norm(c);
+        if (KNOWN[h] || (h.length <= 20 && RECIPIENT_WORD.test(h) && (PHONE_WORD.test(h) || NAME_WORD.test(h) || ADDRESS_WORD.test(h)))) score++;
+      });
       if (score > bestScore) { bestScore = score; best = i; }
     }
     return { index: bestScore >= 2 ? best : -1, score: bestScore };
@@ -75,10 +86,37 @@
 
   function findHeaderRow(rows) { return findHeader(rows).index; }
 
+  // 수취인 이름·전화·주소 열 고르기: 정확히 같은 이름 > 받는 사람 단어 포함 > 일반 이름 순으로 점수
+  var FUZZY = {
+    name: function (h) { return !PHONE_WORD.test(h) && !ADDRESS_WORD.test(h) && (NAME_WORD.test(h) || RECIPIENT_WORD.test(h)) && (RECIPIENT_WORD.test(h) || /^(이름|성명|성함)$/.test(h)); },
+    phone: function (h) { return PHONE_WORD.test(h) && !PHONE_EXTRA.test(h); },
+    phone2: function (h) { return PHONE_WORD.test(h) && PHONE_EXTRA.test(h); },
+    address: function (h) { return ADDRESS_WORD.test(h) && !ADDRESS_SKIP.test(h); }
+  };
+
+  function pickRecipientColumn(field, normed, taken) {
+    var syns = FIELD_SYNONYMS[field].map(norm);
+    var best = -1, bestScore = 0;
+    normed.forEach(function (h, j) {
+      if (!h || BUYER_RE.test(h) || taken[j]) return;
+      var exact = syns.indexOf(h);
+      if (exact === -1 && !FUZZY[field](h)) return;
+      var score = (RECIPIENT_WORD.test(h) ? 200 : 0) + (exact !== -1 ? 100 - exact : 50);
+      if (score > bestScore) { best = j; bestScore = score; }
+    });
+    return best;
+  }
+
   function mapColumns(headers) {
     var normed = headers.map(norm);
     var mapping = {};
+    var taken = {};
+    ['phone', 'phone2', 'name', 'address'].forEach(function (field) {
+      var j = pickRecipientColumn(field, normed, taken);
+      if (j !== -1) { mapping[field] = j; taken[j] = true; }
+    });
     Object.keys(FIELD_SYNONYMS).forEach(function (field) {
+      if (RECIPIENT_FIELDS[field]) return;
       var syns = FIELD_SYNONYMS[field];
       for (var i = 0; i < syns.length; i++) {
         for (var j = 0; j < normed.length; j++) {
@@ -122,6 +160,9 @@
   function normalizePhone(v) {
     var raw = cellText(v);
     if (!raw) return { value: '', valid: false };
+    // 한 칸에 번호가 여러 개면('010-1111-2222 / 010-3333-4444') 첫 번호
+    var parts = raw.split(/[\/,|;]|\s{2,}/).filter(function (x) { return x.replace(/\D/g, '').length >= 7; });
+    if (parts.length > 1) raw = parts[0].trim();
     var d = raw.replace(/\D/g, '');
     if (/^\s*\+?\s*82/.test(raw)) d = '0' + d.slice(2).replace(/^0/, ''); // +82 10-... 국제 표기
     var hit = matchPhone(d);

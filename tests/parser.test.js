@@ -86,6 +86,31 @@ test('구매자 연락처 대신 수취인 휴대폰 사용', () => {
   assert.strictEqual(r.rows[0].phone, '010-2222-2222');
 });
 
+test('전화번호 열 이름이 달라도 수취인 번호를 찾음 (구매자 번호는 제외)', () => {
+  const pick = (headers) => {
+    const m = P.mapColumns(['상품명'].concat(headers));
+    return [m.phone == null ? null : headers[m.phone - 1], m.phone2 == null ? null : headers[m.phone2 - 1]];
+  };
+  assert.deepStrictEqual(pick(['수취인 연락처']), ['수취인 연락처', null]);
+  assert.deepStrictEqual(pick(['수령인 연락처']), ['수령인 연락처', null]);
+  assert.deepStrictEqual(pick(['받는사람 핸드폰']), ['받는사람 핸드폰', null]);
+  assert.deepStrictEqual(pick(['수령자 휴대폰번호']), ['수령자 휴대폰번호', null]);
+  assert.deepStrictEqual(pick(['수하인 HP']), ['수하인 HP', null]);
+  assert.deepStrictEqual(pick(['주문자 연락처', '수취인 연락처']), ['수취인 연락처', null]);
+  assert.deepStrictEqual(pick(['구매자연락처', '연락처']), ['연락처', null]);
+  assert.deepStrictEqual(pick(['수취인연락처2', '수취인 연락처']), ['수취인 연락처', '수취인연락처2']);
+  assert.deepStrictEqual(pick(['수취인 추가연락처', '수취인 휴대전화']), ['수취인 휴대전화', '수취인 추가연락처']);
+  assert.deepStrictEqual(pick(['전화번호', '우편번호']), ['전화번호', null]);
+  // 헤더 이름이 전부 목록에 없어도 변환됨
+  const r = P.convertSheet([
+    ['받는 사람 이름', '상품명', '수량', '받는 분 연락처', '받는사람 주소'],
+    ['가', '칼국수', 1, '010-1111-2222 / 010-3333-4444', '서울'],
+  ]);
+  assert.deepStrictEqual(r.missing, []);
+  assert.strictEqual(r.rows[0].phone, '010-1111-2222');
+  assert.strictEqual(r.rows[0].name, '가');
+});
+
 test('품목명 결합 — 옵션이 상품명 끝에 붙은 경우만 생략', () => {
   assert.strictEqual(P.buildItem('사과 1kg', '1'), '사과 1kg / 1');
   assert.strictEqual(P.buildItem('블루베리 1kg, 냉동', '냉동'), '블루베리 1kg, 냉동');
