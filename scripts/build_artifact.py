@@ -1,6 +1,9 @@
 """Claude 아티팩트(호스팅 페이지)용 단일 HTML 을 만든다.
 
     python3 scripts/build_artifact.py 출력경로.html
+    python3 scripts/build_artifact.py --standalone 발주서_자동변환기.html
+
+--standalone: 라이브러리까지 전부 한 파일에 넣은 완전한 HTML. 받아서 더블클릭하면 바로 열린다.
 
 - 아티팩트는 <!doctype>/<html>/<head>/<body> 를 스스로 감싸므로 본문만 남긴다.
 - CSS 와 앱 코드는 페이지 안에 넣고, 라이브러리(vendor/)는 페이지와 함께 올리는 파일로 둔다.
@@ -64,5 +67,28 @@ def ascii_js(src):
     return ''.join(out)
 
 
+def standalone(out):
+    """라이브러리까지 모두 넣은 한 파일짜리 완전한 HTML (내 컴퓨터에서 더블클릭용)"""
+    html = (ROOT / 'index.html').read_text(encoding='utf-8')
+    css = (ROOT / 'css' / 'style.css').read_text(encoding='utf-8')
+    html = html.replace('<link rel="stylesheet" href="css/style.css">', f'<style>\n{css}\n</style>')
+
+    def script(m):
+        code = (ROOT / m.group(1)).read_text(encoding='utf-8')
+        assert '</script' not in code.lower(), m.group(1)
+        return f'<script>\n{code}\n</script>'
+
+    html = re.sub(r'<script src="([^"]+)"></script>', script, html)
+    html = html.replace('<script>\n(function () {\n  \'use strict\';\n\n  var APP_VERSION',
+                        '<script>window.PO_AUTO_DEMO = true;</script>\n<script>\n(function () {\n  \'use strict\';\n\n  var APP_VERSION', 1)
+    assert 'PO_AUTO_DEMO = true' in html and 'src=' not in re.sub(r'<script>.*?</script>', '', html, flags=re.S)
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    Path(out).write_text(html, encoding='utf-8')
+    print(out, len(html.encode('utf-8')), 'bytes')
+
+
 if __name__ == '__main__':
-    main(sys.argv[1])
+    if sys.argv[1] == '--standalone':
+        standalone(sys.argv[2])
+    else:
+        main(sys.argv[1])

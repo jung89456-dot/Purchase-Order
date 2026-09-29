@@ -11,7 +11,9 @@
 
 설치할 것은 없습니다. 둘 중 편한 방법을 쓰세요.
 
-- **내 컴퓨터에서**: GitHub에서 `Code → Download ZIP`으로 받은 뒤 **압축을 풀고**, 폴더 안의 `index.html`을 크롬·엣지로 엽니다. (ZIP 안에서 바로 열면 동작하지 않습니다.)
+- **파일 하나로 (가장 쉬움)**: `발주서_자동변환기.html` 한 파일만 받아서 더블클릭하면 크롬·엣지에서 열립니다. 인터넷 없이도 동작합니다.
+  (새로 만들기: `python3 scripts/build_artifact.py --standalone 발주서_자동변환기.html`)
+- **폴더째로**: GitHub에서 `Code → Download ZIP`으로 받은 뒤 **압축을 풀고**, 폴더 안의 `index.html`을 엽니다. (ZIP 안에서 바로 열면 동작하지 않습니다.)
 - **인터넷 주소로**: `python3 scripts/build_artifact.py 출력.html`로 만든 한 장짜리 페이지(+ `vendor/` 파일)를 어디에 올려도 됩니다.
 
 ## 사용법
