@@ -111,6 +111,24 @@ test('전화번호 열 이름이 달라도 수취인 번호를 찾음 (구매자
   assert.strictEqual(r.rows[0].name, '가');
 });
 
+test('G마켓·옥션 발송관리: ‘배송지변경 여부’가 아니라 ‘주소’를, 휴대폰을 먼저, ‘배송시 요구사항’은 배송메세지', () => {
+  const r = P.convertSheet(sheetRows('G마켓옥션_발송관리샘플.xlsx'));
+  assert.strictEqual(r.market, 'esm');
+  assert.strictEqual(r.marketLabel, 'G마켓·옥션');
+  assert.deepStrictEqual(r.missing, []);
+  const h = r.headers, m = r.mapping;
+  assert.strictEqual(h[m.address], '주소');
+  assert.strictEqual(h[m.phone], '수령인 휴대폰');
+  assert.strictEqual(h[m.phone2], '수령인 전화번호');
+  assert.strictEqual(h[m.memo], '배송시 요구사항');
+  assert.strictEqual(h[m.name], '수령인명');
+  assert.deepStrictEqual(r.rows.map((x) => [x.name, x.qty, x.phone, x.address, x.memo]), [
+    ['김회성', 4, '010-7000-0048', '경기도 수원시 팔달구 효원로 241 101동 202호', '부재시 문앞'],
+    // 휴대폰이 비어 있으면 일반 전화번호를 씀
+    ['이가람', 1, '02-555-0101', '서울특별시 종로구 세종대로 175', ''],
+  ]);
+});
+
 test('품목명 결합 — 옵션이 상품명 끝에 붙은 경우만 생략', () => {
   assert.strictEqual(P.buildItem('사과 1kg', '1'), '사과 1kg / 1');
   assert.strictEqual(P.buildItem('블루베리 1kg, 냉동', '냉동'), '블루베리 1kg, 냉동');

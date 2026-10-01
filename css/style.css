@@ -38,6 +38,7 @@
   --shadow: rgba(15, 23, 42, .1);
   --smartstore: #007a3d;
   --coupang: #c8102e;
+  --esm: #3b5bdb;
   --focus: #f59e0b;
 }
 @media (prefers-color-scheme: dark) {
@@ -175,6 +176,7 @@ body {
 .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: var(--surface-3); color: var(--text); white-space: nowrap; }
 .badge.smartstore { background: var(--smartstore); color: var(--on-primary); }
 .badge.coupang { background: var(--coupang); color: var(--on-primary); }
+.badge.esm { background: var(--esm); color: var(--on-primary); }
 .badge.warn { background: var(--warn-soft); color: var(--warn); }
 
 /* 품목 입력 */
@@ -266,6 +268,7 @@ td.edited::after { content: ""; position: absolute; top: 3px; right: 3px; width:
 .mk { display: inline-block; width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 4px; font-size: 11px; font-weight: bold; color: var(--on-primary); background: var(--muted); margin-left: 4px; vertical-align: middle; }
 .mk.smartstore { background: var(--smartstore); }
 .mk.coupang { background: var(--coupang); }
+.mk.esm { background: var(--esm); }
 .mk.extra { background: var(--ok); width: auto; padding: 0 3px; }
 .c-cat { min-width: 110px; }
 .c-cat { position: relative; }

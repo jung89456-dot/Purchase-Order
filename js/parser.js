@@ -25,7 +25,7 @@
     address: ['통합배송지', '수취인주소', '받는분주소', '수령인주소', '배송지주소', '배송주소', '배송지', '주소', '수하인주소'],
     addressBase: ['기본배송지', '기본주소'],
     addressDetail: ['상세배송지', '상세주소'],
-    memo: ['배송메세지', '배송메시지', '배송요청사항', '배송메모', '요청사항', '배송시요청사항', '배송요청메세지'],
+    memo: ['배송메세지', '배송메시지', '배송요청사항', '배송메모', '요청사항', '배송시요청사항', '배송요청메세지', '배송시요구사항', '배송요구사항', '요구사항', '배송시메모', '배송시메세지'],
     status: ['주문상태'],
     status2: ['주문세부상태'],
     claim: ['클레임상태', '클레임'],
@@ -50,6 +50,9 @@
   var NAME_WORD = /명$|이름|성명|성함/;
   var ADDRESS_WORD = /주소|배송지/;
   var ADDRESS_SKIP = /우편|메일|기본|상세|코드|번호/;
+  // Y/N·날짜·코드 같은 값이 들어가는 열은 이름·전화·주소로 쓰지 않는다 (예: G마켓 ‘배송지변경 여부’)
+  var NOT_VALUE_COL = /여부|유무|변경|구분|유형|코드|일시|일자|사유|방법|금액|비용|횟수|요청|요구|메모|메세지|메시지/;
+  var MOBILE_WORD = /휴대폰|핸드폰|휴대전화|mobile|hp/;
 
   var REQUIRED = ['name', 'product', 'phone', 'address'];
   var HEADER_SCAN_ROWS = 50;
@@ -100,8 +103,10 @@
     normed.forEach(function (h, j) {
       if (!h || BUYER_RE.test(h) || taken[j]) return;
       var exact = syns.indexOf(h);
-      if (exact === -1 && !FUZZY[field](h)) return;
+      if (exact === -1 && (NOT_VALUE_COL.test(h) || !FUZZY[field](h))) return;
       var score = (RECIPIENT_WORD.test(h) ? 200 : 0) + (exact !== -1 ? 100 - exact : 50);
+      // 전화번호는 휴대폰을 일반 전화보다 먼저
+      if ((field === 'phone' || field === 'phone2') && MOBILE_WORD.test(h)) score += 60;
       if (score > bestScore) { best = j; bestScore = score; }
     });
     return best;
@@ -115,6 +120,13 @@
       var j = pickRecipientColumn(field, normed, taken);
       if (j !== -1) { mapping[field] = j; taken[j] = true; }
     });
+    // 보조 번호가 따로 없으면 남은 수취인 전화 열(예: 휴대폰 옆의 ‘수령인 전화번호’)을 보조로
+    if (mapping.phone2 == null && mapping.phone != null) {
+      normed.forEach(function (h, j) {
+        if (mapping.phone2 != null || taken[j] || BUYER_RE.test(h) || NOT_VALUE_COL.test(h)) return;
+        if (RECIPIENT_WORD.test(h) && PHONE_WORD.test(h)) { mapping.phone2 = j; taken[j] = true; }
+      });
+    }
     Object.keys(FIELD_SYNONYMS).forEach(function (field) {
       if (RECIPIENT_FIELDS[field]) return;
       var syns = FIELD_SYNONYMS[field];
@@ -135,10 +147,11 @@
     headers.forEach(function (h) { set[norm(h)] = true; });
     if (set['상품주문번호'] && (set['수취인연락처1'] || set['통합배송지'])) return 'smartstore';
     if (set['묶음배송번호'] || set['구매수(수량)'] || (set['수취인이름'] && set['노출상품명(옵션명)'])) return 'coupang';
+    if (set['장바구니번호(결제번호)'] || set['스마일캐시적립'] || (set['수령인명'] && set['배송시요구사항'])) return 'esm';
     return 'etc';
   }
 
-  var MARKET_LABEL = { smartstore: '스마트스토어', coupang: '쿠팡', etc: '기타 쇼핑몰' };
+  var MARKET_LABEL = { smartstore: '스마트스토어', coupang: '쿠팡', esm: 'G마켓·옥션', etc: '기타 쇼핑몰' };
 
   var PHONE_PATTERNS = [
     [/^(050\d)(\d{4})(\d{4})$/, '$1-$2-$3'],     // 안심번호 0504-xxxx-xxxx

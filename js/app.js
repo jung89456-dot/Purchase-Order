@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v13';
+  var APP_VERSION = 'v14';
   var HISTORY_KEY = 'po.history.v1'; // 지난 발주 기록 (주문 키의 해시만 저장)
   var USED_KEY = 'po.used';
   var HISTORY_DAYS = 14;
@@ -626,7 +626,7 @@
     var cb = el('input', { type: 'checkbox', tabindex: '-1', 'aria-label': (r.name || '이름 없음') + ' 주문 발주 포함' });
     cb.addEventListener('change', function () { setIncluded(tr, r, cb.checked); });
     tdc.appendChild(cb);
-    tdc.appendChild(el('span', { className: 'mk ' + r.market, title: r.source, 'aria-label': r.source }, r.market === 'smartstore' ? 'N' : r.market === 'coupang' ? 'C' : r.market === 'extra' ? '추' : '·'));
+    tdc.appendChild(el('span', { className: 'mk ' + r.market, title: r.source, 'aria-label': r.source }, r.market === 'smartstore' ? 'N' : r.market === 'coupang' ? 'C' : r.market === 'esm' ? 'G' : r.market === 'extra' ? '추' : '·'));
     tdc.appendChild(el('span', { className: 'star', title: '추가 데이터에 있는 고객', 'aria-label': '추가 데이터에 있는 고객' }, '★'));
     tr.appendChild(tdc);
 
