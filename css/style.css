@@ -215,7 +215,6 @@ body {
 .data-wrap { max-height: 420px; overflow: auto; }
 .data-wrap td { white-space: nowrap; }
 .data-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-.star { color: var(--warn); font-size: 14px; margin-left: 3px; vertical-align: middle; }
 .term-chip.combo { background: var(--ok-soft); color: var(--ok); }
 
 /* 미리보기 */

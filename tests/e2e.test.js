@@ -126,7 +126,7 @@ test('잘못된 파일은 친절한 안내, 키보드로 파일 선택 가능', 
   });
 });
 
-test('품목 입력은 바로 반영되고, 다음에 열어도 남아 있음', async () => {
+test('품목 입력은 바로 반영되고, 껐다 켜면 빈 칸', async () => {
   await withPage(async (page) => {
     await page.click('#demoBtnBig');
     // 타이핑만 해도(Enter 없이) 잠시 뒤 반영
@@ -136,9 +136,16 @@ test('품목 입력은 바로 반영되고, 다음에 열어도 남아 있음', 
     await typeTerms(page, '들기름, 없는품목');
     assert.ok(await page.locator('#termResults .term-chip.zero', { hasText: '없는품목' }).count());
     await page.reload();
-    assert.strictEqual(await page.inputValue('#termInput'), '들기름, 없는품목');
+    assert.strictEqual(await page.inputValue('#termInput'), '');
+    assert.strictEqual(await page.evaluate(() => localStorage.getItem('po.terms.v1')), null);
+    // 예전 버전이 저장해 둔 품목도 지움
+    await page.evaluate(() => localStorage.setItem('po.terms.v1', '칼국수'));
+    await page.reload();
+    assert.strictEqual(await page.inputValue('#termInput'), '');
+    assert.strictEqual(await page.evaluate(() => localStorage.getItem('po.terms.v1')), null);
     // 지우기 → 전체
     await page.click('#demoBtnBig');
+    await typeTerms(page, '들기름');
     await page.click('#termClear');
     assert.strictEqual(await included(page), 6);
   });

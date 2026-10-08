@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v15';
+  var APP_VERSION = 'v16';
   var HISTORY_KEY = 'po.history.v1'; // 예전 버전이 브라우저에 남긴 발주 기록 (열 때 지움)
   var USED_KEY = 'po.used';
   var SESSION = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -26,11 +26,10 @@
   };
   var seq = 0;
   var queue = Promise.resolve(); // 모든 업로드를 한 줄로 처리 (비밀번호 창이 겹치지 않게)
-  var storageOk = true;
 
   $('appVersion').textContent = APP_VERSION;
 
-  /* ---------------- 입력한 품목 (브라우저에 저장) ---------------- */
+  /* ---------------- 입력한 품목 (화면을 열어 둔 동안만. 껐다 켜면 빈 칸) ---------------- */
 
   var TERMS_KEY = 'po.terms.v1';
   var NOMATCH = '입력한 품목 아님';
@@ -44,15 +43,11 @@
     state.otherSelected = state.catalog.length === 0;
   }
 
+  // 껐다 켜면 항상 빈 칸에서 시작 (예전 버전이 저장해 둔 품목도 지움)
   function loadTerms() {
-    var text = '';
-    try { text = localStorage.getItem(TERMS_KEY) || ''; } catch (e) { text = ''; }
-    applyTerms(text);
-    $('termInput').value = state.termText;
-  }
-
-  function saveTerms() {
-    try { localStorage.setItem(TERMS_KEY, state.termText); } catch (e) { storageOk = false; }
+    try { localStorage.removeItem(TERMS_KEY); } catch (e) { /* 무시 */ }
+    applyTerms('');
+    $('termInput').value = '';
   }
 
   /* ---------------- 이번에 받은 발주서 기록 (‘새로 시작’ 뒤 같은 주문을 다시 올렸을 때 이중 발주 방지) ---------------- */
@@ -344,7 +339,7 @@
     state.rows.forEach(function (r) {
       if (r.extra) {
         // 추가 데이터에서 직접 고른 고객 → 상태·중복·품목 필터 없이 포함
-        r.refIdx = -1; r.matches = []; r.combo = null;
+        r.matches = []; r.combo = null;
         r.category = r.categoryManual || '';
         r.reasons = []; r.warns = [];
         r.included = r.override != null ? r.override : true;
@@ -373,7 +368,6 @@
         // 같은 파일 안이거나 주문번호가 없으면 자동으로 빼지 않고 확인만 요청
         warns.push('dup-suspect');
       }
-      r.refIdx = refMatch(r);
       var cls = classifyRow(r);
       r.matches = cls.matches;
       r.combo = null;
@@ -504,7 +498,6 @@
     var box = $('termResults');
     box.innerHTML = '';
     $('termClear').hidden = !state.termText;
-    $('storageWarn').hidden = storageOk;
     if (!state.catalog.length) {
       if (state.rows.length) box.appendChild(el('p', { className: 'term-all' }, '품목을 적지 않아 전체 주문 ' + candidateCount(function () { return true; }) + '건이 발주서에 들어갑니다.'));
       return;
@@ -542,7 +535,6 @@
 
   function setTerms(text) {
     applyTerms(text);
-    saveTerms();
     state.limit = PAGE;
     compute();
     renderLight();
@@ -626,7 +618,6 @@
     cb.addEventListener('change', function () { setIncluded(tr, r, cb.checked); });
     tdc.appendChild(cb);
     tdc.appendChild(el('span', { className: 'mk ' + r.market, title: r.source, 'aria-label': r.source }, MARKET_MARK[r.market] || '·'));
-    tdc.appendChild(el('span', { className: 'star', title: '추가 데이터에 있는 고객', 'aria-label': '추가 데이터에 있는 고객' }, '★'));
     tr.appendChild(tdc);
 
     EDIT_FIELDS.forEach(function (f) {
@@ -817,9 +808,6 @@
 
   function updateRow(tr, r) {
     tr.className = r.included ? '' : 'excluded';
-    var star = tr.querySelector('.star');
-    star.hidden = !(r.refIdx >= 0);
-    if (r.refIdx >= 0) star.title = '추가 데이터(' + ref.name + ')에 있는 고객';
     tr.querySelector('.c-check input').checked = r.included;
     var tag = tr.querySelector('.cat-tag');
     var catLabel = r.category || (r.extra ? '직접 추가' : state.catalog.length ? '해당 없음' : '전체');
@@ -899,9 +887,8 @@
     $('tableWrap').setAttribute('aria-labelledby', 'tab-' + state.view);
     var byMarket = {};
     inc.forEach(function (r) { byMarket[r.source] = (byMarket[r.source] || 0) + 1; });
-    var stars = inc.filter(function (r) { return r.refIdx >= 0; }).length;
     $('marketLine').textContent = Object.keys(byMarket).map(function (m) { return m + ' ' + byMarket[m] + '건'; }).join(' · ') +
-      (stars ? ' · ★ 추가 데이터 고객 ' + stars + '건' : '') + (edited ? ' · 고친 주문 ' + edited + '건' : '');
+      (edited ? ' · 고친 주문 ' + edited + '건' : '');
 
     renderExcludeNotice(out);
 
@@ -1310,7 +1297,7 @@
   var REF_KEY = 'po.refdata.v1';
   var REF_QUERY_KEY = 'po.refquery.v1';
   var REF_PREVIEW = 200;
-  var ref = { name: '', headers: [], rows: [], hidden: {}, query: '', withOrder: true, saved: true, cols: { phone: -1, name: -1 }, index: null };
+  var ref = { name: '', headers: [], rows: [], hidden: {}, query: '', withOrder: true, saved: true };
 
   function loadRef() {
     try {
@@ -1327,7 +1314,6 @@
     } catch (e) { /* 저장된 데이터가 없거나 읽을 수 없으면 빈 상태로 */ }
     $('dataQuery').value = ref.query;
     $('dataWithOrder').checked = ref.withOrder;
-    buildRefIndex();
   }
 
   function saveRef() {
@@ -1343,29 +1329,7 @@
     }
   }
 
-  function buildRefIndex() {
-    ref.cols = P.customerColumns(ref.headers);
-    var phones = {}, names = {};
-    ref.rows.forEach(function (row, i) {
-      if (ref.cols.phone >= 0) { var d = P.phoneDigits(row[ref.cols.phone]); if (d && phones[d] == null) phones[d] = i; }
-      if (ref.cols.name >= 0) { var n = P.norm(row[ref.cols.name]); if (n && names[n] == null) names[n] = i; }
-    });
-    ref.index = { phones: phones, names: names };
-  }
 
-  // 주문이 추가 데이터에 있는 고객인지: 전화번호로 대조, 데이터에 전화번호 열이 없으면 이름으로
-  function refMatch(r) {
-    if (!ref.rows.length || !ref.index) return -1;
-    if (ref.cols.phone >= 0) {
-      var d = P.phoneDigits(r.phone);
-      return d && ref.index.phones[d] != null ? ref.index.phones[d] : -1;
-    }
-    if (ref.cols.name >= 0) {
-      var n = P.norm(r.name);
-      return n && ref.index.names[n] != null ? ref.index.names[n] : -1;
-    }
-    return -1;
-  }
 
   // 적은 내용(고객 이름 등)에 해당하는 행. 아무것도 적지 않으면 없음 (명단 전체가 발주서에 섞이지 않게)
   function refResult() {
@@ -1485,7 +1449,6 @@
         ref.headers = best.headers;
         ref.rows = best.rows;
         ref.hidden = {};
-        buildRefIndex();
         saveRef();
         render();
         toast('추가 데이터 ‘' + file.name + '’ ' + ref.rows.length + '행을 올렸습니다. 필요한 고객 이름을 적어 주세요.');
@@ -1605,7 +1568,7 @@
       .then(function (ok) {
         if (!ok) return;
         ref.name = ''; ref.headers = []; ref.rows = []; ref.hidden = {};
-        buildRefIndex(); saveRef(); render();
+        saveRef(); render();
         toast('추가 데이터를 지웠습니다.');
       });
   });
