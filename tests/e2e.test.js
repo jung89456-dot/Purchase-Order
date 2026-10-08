@@ -374,12 +374,15 @@ test('탭은 방향키로 이동, 빈 필수 칸에는 안내 문구', async () 
   });
 });
 
-test('여러 날 중복: 어제 받은 주문이 오늘 다시 오면 기본으로 빠짐 (기록 지우기 가능)', async () => {
+test('발주 기록: 같은 화면에서 ‘새로 시작’ 뒤 다시 올리면 빠지고, 껐다 켜면 초기화', async () => {
   const browser = await chromium.launch({ env: { ...process.env, LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' } });
   try {
     const ctx = await browser.newContext({ acceptDownloads: true });
+    // 예전 버전이 남긴 기록이 있어도 열면 지워져야 함
+    await ctx.addInitScript(() => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem('po.history.v1', '[{"h":"x","d":"2026-10-01","s":"old"}]'); sessionStorage.setItem('seeded', '1'); } });
     const page = await ctx.newPage();
     await page.goto(url);
+    assert.strictEqual(await page.evaluate(() => localStorage.getItem('po.history.v1')), null);
     await upload(page, [sample('스마트스토어_주문샘플.xlsx')]);
     await page.waitForFunction(() => window.__po.state.files.length === 1 && !window.__po.state.busy);
     const [d] = await Promise.all([page.waitForEvent('download'), page.click('#downloadBtn')]);
@@ -387,38 +390,28 @@ test('여러 날 중복: 어제 받은 주문이 오늘 다시 오면 기본으�
     // 완료 상태: 다음 할 일 + 다시 받기/새로 시작
     assert.ok(await page.locator('#doneBox').isVisible());
     assert.strictEqual((await page.textContent('#downloadBtn')).trim(), '다시 받기');
-    const hist = await page.evaluate(() => localStorage.getItem('po.history.v1'));
-    assert.ok(hist && !hist.includes('김하늘') && !hist.includes('2026092812345'), '해시만 저장');
-    // 고치면 '받은 뒤 내용이 바뀌었습니다'
-    await page.click('#previewTable tbody tr:first-child td[data-col="memo"]');
-    await page.keyboard.type('!');
-    await page.keyboard.press('Enter');
-    assert.match(await page.textContent('#actionText'), /바뀌었습니다/);
+    // 기록은 브라우저에 저장하지 않음
+    assert.strictEqual(await page.evaluate(() => localStorage.getItem('po.history.v1')), null);
 
-    // 다음 날(새로 연 페이지)에 같은 파일 → 전부 '지난 발주에 있음'
-    const page2 = await ctx.newPage();
-    await page2.goto(url);
-    await upload(page2, [sample('스마트스토어_주문샘플.xlsx')]);
-    await page2.waitForFunction(() => window.__po.state.files.length === 1 && !window.__po.state.busy);
-    assert.strictEqual(await included(page2), 0);
-    assert.match(await page2.textContent('#excludeNotice'), /지난 발주에 이미 넣은 주문 4건/);
-    // 기록 지우기
-    await page2.click('#clearHistoryBtn');
-    await page2.click('#confirmOk');
-    await page2.waitForFunction(() => window.__po.state.rows.filter((r) => r.included).length === 4);
-
-    // 고친 뒤 다시 받기 → 완료 상태 → '새로 시작' 후 같은 파일을 다시 올려도 걸러짐
-    await Promise.all([page.waitForEvent('download'), page.click('#downloadBtn')]);
+    // 같은 화면에서 '새로 시작' 후 같은 파일을 다시 올리면 빠짐
     await page.click('#newStartBtn');
     await upload(page, [sample('쿠팡_주문샘플.xlsx'), sample('스마트스토어_주문샘플.xlsx')]);
     await page.waitForFunction(() => window.__po.state.files.length === 2 && !window.__po.state.busy);
     const ss = await page.evaluate(() => window.__po.state.rows.filter((r) => r.source === '스마트스토어' && r.included).length);
     assert.strictEqual(ss, 0);
+    assert.match(await page.textContent('#excludeNotice'), /이미 받은 발주서에 넣은 주문 4건/);
+
+    // 껐다 켜면(새로 열기) 기록과 상관없이 처음부터 → 4건 모두 포함
+    const page2 = await ctx.newPage();
+    await page2.goto(url);
+    await upload(page2, [sample('스마트스토어_주문샘플.xlsx')]);
+    await page2.waitForFunction(() => window.__po.state.files.length === 1 && !window.__po.state.busy);
+    assert.strictEqual(await included(page2), 4);
+    assert.doesNotMatch(await page2.textContent('#excludeNotice'), /이미 받은 발주서/);
   } finally {
     await browser.close();
   }
 });
-
 test('샘플 상태에서는 파일 이름에 샘플_ 이 붙고 기록에 남지 않음', async () => {
   await withPage(async (page) => {
     await page.click('#demoBtnBig');
@@ -546,4 +539,21 @@ test('④ 추가 데이터: 이름을 적으면 이름·연락처·주소가 당
   } finally {
     await browser.close();
   }
+});
+
+test('카카오쇼핑: 열 이름 또는 파일 이름으로 알아보고 K 로 표시', async () => {
+  const generic = mkXlsx([['주문번호', '수령인', '상품명', '수량', '수령인 연락처', '배송지 주소'], [1, '가', '칼국수', 1, '01011112222', '서울']]);
+  const withKakaoCol = mkXlsx([['주문번호', '톡딜여부', '수령인', '상품명', '수량', '수령인 연락처', '배송지 주소'], [2, 'N', '나', '수제비', 1, '01033334444', '부산']]);
+  await withPage(async (page) => {
+    await upload(page, [
+      { name: '카카오쇼핑_주문내역.xlsx', mimeType: T, buffer: generic },
+      { name: 'orders.xlsx', mimeType: T, buffer: withKakaoCol },
+    ]);
+    await page.waitForFunction(() => window.__po.state.files.length === 2 && !window.__po.state.busy);
+    const r = await page.evaluate(() => window.__po.state.rows.map((x) => [x.market, x.source]));
+    assert.deepStrictEqual(r, [['kakao', '카카오쇼핑'], ['kakao', '카카오쇼핑']]);
+    const marks = await page.locator('#previewTable tbody .mk').allTextContents();
+    assert.deepStrictEqual(marks, ['K', 'K']);
+    assert.match(await page.textContent('#fileList'), /카카오쇼핑/);
+  });
 });

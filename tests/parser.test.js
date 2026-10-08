@@ -129,6 +129,15 @@ test('G마켓·옥션 발송관리: ‘배송지변경 여부’가 아니라 �
   ]);
 });
 
+test('마켓: 카카오 열 이름, 파일 이름으로 짐작', () => {
+  assert.strictEqual(P.detectMarket(['주문번호', '톡딜여부', '수령인']), 'kakao');
+  assert.strictEqual(P.detectMarket(['주문번호', '수령인']), 'etc');
+  assert.strictEqual(P.marketFromFileName('카카오쇼핑_주문.xlsx'), 'kakao');
+  assert.strictEqual(P.marketFromFileName('Kakao Store orders.csv'), 'kakao');
+  assert.strictEqual(P.marketFromFileName('톡스토어 주문.xlsx'), 'kakao');
+  assert.strictEqual(P.marketFromFileName('주문목록.xlsx'), '');
+});
+
 test('품목명 결합 — 옵션이 상품명 끝에 붙은 경우만 생략', () => {
   assert.strictEqual(P.buildItem('사과 1kg', '1'), '사과 1kg / 1');
   assert.strictEqual(P.buildItem('블루베리 1kg, 냉동', '냉동'), '블루베리 1kg, 냉동');

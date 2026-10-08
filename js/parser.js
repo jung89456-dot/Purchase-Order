@@ -148,10 +148,21 @@
     if (set['상품주문번호'] && (set['수취인연락처1'] || set['통합배송지'])) return 'smartstore';
     if (set['묶음배송번호'] || set['구매수(수량)'] || (set['수취인이름'] && set['노출상품명(옵션명)'])) return 'coupang';
     if (set['장바구니번호(결제번호)'] || set['스마일캐시적립'] || (set['수령인명'] && set['배송시요구사항'])) return 'esm';
+    if (Object.keys(set).some(function (h) { return /카카오|톡딜|톡스토어|톡채널|채널상품번호/.test(h); })) return 'kakao';
     return 'etc';
   }
 
-  var MARKET_LABEL = { smartstore: '스마트스토어', coupang: '쿠팡', esm: 'G마켓·옥션', etc: '기타 쇼핑몰' };
+  /** 열 이름으로 마켓을 모를 때 파일 이름으로 짐작 (예: ‘카카오쇼핑_주문내역.xlsx’) */
+  function marketFromFileName(name) {
+    var n = norm(name);
+    if (/카카오|kakao|톡스토어|talkstore|톡딜|선물하기/.test(n)) return 'kakao';
+    if (/스마트스토어|smartstore|네이버/.test(n)) return 'smartstore';
+    if (/쿠팡|coupang|wing/.test(n)) return 'coupang';
+    if (/g마켓|지마켓|gmarket|옥션|auction|esm/.test(n)) return 'esm';
+    return '';
+  }
+
+  var MARKET_LABEL = { smartstore: '스마트스토어', coupang: '쿠팡', esm: 'G마켓·옥션', kakao: '카카오쇼핑', etc: '기타 쇼핑몰' };
 
   var PHONE_PATTERNS = [
     [/^(050\d)(\d{4})(\d{4})$/, '$1-$2-$3'],     // 안심번호 0504-xxxx-xxxx
@@ -577,7 +588,7 @@
     name: '수취자명 없음', item: '품목 없음', phone: '전화번호 없음', 'phone-short': '전화번호가 너무 짧음', 'phone-format': '전화번호 형식 확인',
     address: '주소 없음', qty: '수량 오류', 'qty-default': '수량 없음 → 1로 입력',
     'dup-suspect': '같은 주문이 또 있음(확인)', ambiguous: '여러 품목에 해당(품목 확인)',
-    'history-suspect': '지난 발주와 내용이 같음(확인)'
+    'history-suspect': '이미 받은 발주서와 내용이 같음(확인)'
   };
   // 다운로드 전 확인이 필요한 심각한 문제
   var BLOCKING = { name: 1, item: 1, phone: 1, 'phone-short': 1, address: 1, qty: 1 };
@@ -601,6 +612,7 @@
     findHeaderRow: findHeaderRow,
     mapColumns: mapColumns,
     detectMarket: detectMarket,
+    marketFromFileName: marketFromFileName,
     normalizePhone: normalizePhone,
     formatPhone: formatPhone,
     phoneTooShort: phoneTooShort,

@@ -46,6 +46,8 @@
   --smartstore: #007a3d;
   --coupang: #c8102e;
   --esm: #3b5bdb;
+  --kakao: #fee500;
+  --kakao-ink: #191919;
   --focus: #f59e0b;
 }
 @media (prefers-color-scheme: dark) {
@@ -184,6 +186,7 @@ body {
 .badge.smartstore { background: var(--smartstore); color: var(--on-primary); }
 .badge.coupang { background: var(--coupang); color: var(--on-primary); }
 .badge.esm { background: var(--esm); color: var(--on-primary); }
+.badge.kakao { background: var(--kakao); color: var(--kakao-ink); }
 .badge.warn { background: var(--warn-soft); color: var(--warn); }
 
 /* 품목 입력 */
@@ -276,6 +279,7 @@ td.edited::after { content: ""; position: absolute; top: 3px; right: 3px; width:
 .mk.smartstore { background: var(--smartstore); }
 .mk.coupang { background: var(--coupang); }
 .mk.esm { background: var(--esm); }
+.mk.kakao { background: var(--kakao); color: var(--kakao-ink); }
 .mk.extra { background: var(--ok); width: auto; padding: 0 3px; }
 .c-cat { min-width: 110px; }
 .c-cat { position: relative; }
@@ -422,6 +426,7 @@ dialog .btn:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
             <li><b>스마트스토어</b>: 스마트스토어센터 → 판매관리 → 발주(주문)확인/발송관리 → <b>엑셀다운</b><br><span class="muted">다운로드할 때 정한 비밀번호가 있으면 올린 뒤 입력하면 됩니다.</span></li>
             <li><b>쿠팡</b>: 쿠팡 Wing → 주문/배송 → 배송관리 → <b>엑셀 다운로드</b></li>
             <li><b>G마켓·옥션</b>: ESM PLUS → 주문관리 → 발송관리 → <b>엑셀 다운로드</b></li>
+            <li><b>카카오쇼핑</b>: 카카오쇼핑 판매자센터 주문 엑셀. 파일 이름에 ‘카카오’가 들어 있으면 K로 표시됩니다.</li>
             <li><b>기타 쇼핑몰</b>: 수취인·상품명·수량·전화번호·주소 열이 있는 엑셀이면 자동으로 인식합니다.</li>
           </ul>
         </details>
@@ -471,7 +476,7 @@ dialog .btn:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
             <li>받은 <b>당일발주 엑셀</b>을 공급처에 보내기</li>
             <li>스마트스토어·쿠팡에서 이 주문들을 <b>발주확인(발송처리)</b> 하기 — 그래야 내일 받는 파일에 다시 나오지 않습니다</li>
           </ol>
-          <p class="muted small">같은 주문이 내일 다시 들어오면 ‘지난 발주에 있음’으로 자동으로 빠집니다.</p>
+          <p class="muted small">‘새로 시작’ 뒤 같은 주문을 다시 올리면 ‘이미 받은 발주서에 있음’으로 빠집니다. 화면을 껐다 켜면 처음부터 시작합니다.</p>
         </div>
         <p class="muted small table-help">칸을 누르면 바로 고칠 수 있고, 맨 앞 체크를 끄면 그 주문은 빠집니다.<span class="kbd-hint"> (키보드: 방향키 이동 · Enter 고치기 · Esc 취소)</span></p>
         <div class="table-wrap" id="tableWrap" role="tabpanel">
@@ -536,7 +541,7 @@ dialog .btn:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
   </div>
 
   <footer class="footer">
-    <p>주문 정보는 이 브라우저 밖으로 나가지 않습니다. 중복 발주를 막기 위해 최근 14일 동안 받은 주문을 <b>원래 내용으로 되돌릴 수 없게 바꾼 식별값(해시)</b>만 이 브라우저에 남깁니다.
+    <p>주문 정보는 이 브라우저 밖으로 나가지 않습니다. 받은 발주서 기록은 화면을 열어 둔 동안만 쓰고, 껐다 켜면 지워집니다.
       <button type="button" class="link-btn" id="clearHistoryBtn">발주 기록 지우기</button></p>
   </footer>
 
@@ -793,10 +798,21 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     if (set['상품주문번호'] && (set['수취인연락처1'] || set['통합배송지'])) return 'smartstore';
     if (set['묶음배송번호'] || set['구매수(수량)'] || (set['수취인이름'] && set['노출상품명(옵션명)'])) return 'coupang';
     if (set['장바구니번호(결제번호)'] || set['스마일캐시적립'] || (set['수령인명'] && set['배송시요구사항'])) return 'esm';
+    if (Object.keys(set).some(function (h) { return /카카오|톡딜|톡스토어|톡채널|채널상품번호/.test(h); })) return 'kakao';
     return 'etc';
   }
 
-  var MARKET_LABEL = { smartstore: '스마트스토어', coupang: '쿠팡', esm: 'G마켓·옥션', etc: '기타 쇼핑몰' };
+  /** 열 이름으로 마켓을 모를 때 파일 이름으로 짐작 (예: ‘카카오쇼핑_주문내역.xlsx’) */
+  function marketFromFileName(name) {
+    var n = norm(name);
+    if (/카카오|kakao|톡스토어|talkstore|톡딜|선물하기/.test(n)) return 'kakao';
+    if (/스마트스토어|smartstore|네이버/.test(n)) return 'smartstore';
+    if (/쿠팡|coupang|wing/.test(n)) return 'coupang';
+    if (/g마켓|지마켓|gmarket|옥션|auction|esm/.test(n)) return 'esm';
+    return '';
+  }
+
+  var MARKET_LABEL = { smartstore: '스마트스토어', coupang: '쿠팡', esm: 'G마켓·옥션', kakao: '카카오쇼핑', etc: '기타 쇼핑몰' };
 
   var PHONE_PATTERNS = [
     [/^(050\d)(\d{4})(\d{4})$/, '$1-$2-$3'],     // 안심번호 0504-xxxx-xxxx
@@ -1222,7 +1238,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     name: '수취자명 없음', item: '품목 없음', phone: '전화번호 없음', 'phone-short': '전화번호가 너무 짧음', 'phone-format': '전화번호 형식 확인',
     address: '주소 없음', qty: '수량 오류', 'qty-default': '수량 없음 → 1로 입력',
     'dup-suspect': '같은 주문이 또 있음(확인)', ambiguous: '여러 품목에 해당(품목 확인)',
-    'history-suspect': '지난 발주와 내용이 같음(확인)'
+    'history-suspect': '이미 받은 발주서와 내용이 같음(확인)'
   };
   // 다운로드 전 확인이 필요한 심각한 문제
   var BLOCKING = { name: 1, item: 1, phone: 1, 'phone-short': 1, address: 1, qty: 1 };
@@ -1246,6 +1262,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     findHeaderRow: findHeaderRow,
     mapColumns: mapColumns,
     detectMarket: detectMarket,
+    marketFromFileName: marketFromFileName,
     normalizePhone: normalizePhone,
     formatPhone: formatPhone,
     phoneTooShort: phoneTooShort,
@@ -1591,10 +1608,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v14';
-  var HISTORY_KEY = 'po.history.v1'; // 지난 발주 기록 (주문 키의 해시만 저장)
+  var APP_VERSION = 'v15';
+  var HISTORY_KEY = 'po.history.v1'; // 예전 버전이 브라우저에 남긴 발주 기록 (열 때 지움)
   var USED_KEY = 'po.used';
-  var HISTORY_DAYS = 14;
   var SESSION = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   var $ = function (id) { return document.getElementById(id); };
@@ -1646,29 +1662,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     try { localStorage.setItem(TERMS_KEY, state.termText); } catch (e) { storageOk = false; }
   }
 
-  /* ---------------- 지난 발주 기록 (여러 날에 걸친 중복 발주 방지) ---------------- */
+  /* ---------------- 이번에 받은 발주서 기록 (‘새로 시작’ 뒤 같은 주문을 다시 올렸을 때 이중 발주 방지) ---------------- */
 
   function today() {
     var d = new Date(), pad = function (n) { return (n < 10 ? '0' : '') + n; };
     return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   }
 
+  // 발주 기록은 화면을 열어 둔 동안만 쓴다. 껐다 켜면 항상 처음부터 (예전 버전이 남긴 기록도 지움)
   function loadHistory() {
-    var list = [];
-    try { list = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch (e) { list = []; }
-    if (!Array.isArray(list)) list = [];
-    var cutoff = new Date(Date.now() - HISTORY_DAYS * 864e5).toISOString().slice(0, 10);
     state.history = {};
-    list.forEach(function (x) {
-      if (x && typeof x.h === 'string' && typeof x.d === 'string' && x.d >= cutoff) state.history[x.h] = { d: x.d, s: x.s };
-    });
+    try { localStorage.removeItem(HISTORY_KEY); } catch (e) { /* 무시 */ }
   }
 
-  function saveHistory() {
-    var list = Object.keys(state.history).map(function (h) { return { h: h, d: state.history[h].d, s: state.history[h].s }; });
-    list.sort(function (a, b) { return a.d < b.d ? 1 : -1; });
-    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 20000))); } catch (e) { storageOk = false; }
-  }
+  function saveHistory() { /* 브라우저에 저장하지 않음 */ }
 
   function recordHistory(rows) {
     var d = today();
@@ -1834,6 +1841,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         var res = P.convertSheets(sheetsOf(wb));
         if (res.error) throw friendly(res.code, res.error);
         if (!res.rows.length) throw friendly('NO_ROWS');
+        if (res.market === 'etc') {
+          var guess = P.marketFromFileName(f.name);
+          if (guess) {
+            res.market = guess;
+            res.marketLabel = P.MARKET_LABEL[guess];
+            res.rows.forEach(function (r) { r.market = guess; r.source = res.marketLabel; });
+          }
+        }
         result = res;
         return hashRows(res.rows);
       })
@@ -1873,6 +1888,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   /* ---------------- 행 상태 계산 ---------------- */
 
   var EDIT_FIELDS = ['name', 'item', 'qty', 'phone', 'address', 'memo'];
+  var MARKET_MARK = { smartstore: 'N', coupang: 'C', esm: 'G', kakao: 'K', extra: '추' };
 
   function validate(r) {
     var keepDefault = r.qtyDefaulted && r.qty === r.orig.qty;
@@ -1951,7 +1967,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       var hist = historyHit(r);
       if (hist) {
         // 주문번호가 같으면 이미 보낸 주문 → 기본 제외. 주문번호가 없으면 같은 손님의 재주문일 수 있어 확인만
-        if (r.keyKind !== 'c') reasons.push('지난 발주에 있음 (' + mmdd(hist.d) + ')');
+        if (r.keyKind !== 'c') reasons.push('이미 받은 발주서에 있음 (' + mmdd(hist.d) + ')');
         else warns.push('history-suspect');
       }
       if (firstFile[r.key] == null) {
@@ -2216,7 +2232,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     var cb = el('input', { type: 'checkbox', tabindex: '-1', 'aria-label': (r.name || '이름 없음') + ' 주문 발주 포함' });
     cb.addEventListener('change', function () { setIncluded(tr, r, cb.checked); });
     tdc.appendChild(cb);
-    tdc.appendChild(el('span', { className: 'mk ' + r.market, title: r.source, 'aria-label': r.source }, r.market === 'smartstore' ? 'N' : r.market === 'coupang' ? 'C' : r.market === 'esm' ? 'G' : r.market === 'extra' ? '추' : '·'));
+    tdc.appendChild(el('span', { className: 'mk ' + r.market, title: r.source, 'aria-label': r.source }, MARKET_MARK[r.market] || '·'));
     tdc.appendChild(el('span', { className: 'star', title: '추가 데이터에 있는 고객', 'aria-label': '추가 데이터에 있는 고객' }, '★'));
     tr.appendChild(tdc);
 
@@ -2568,7 +2584,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       }
     });
     var itemKeys = Object.keys(byItem);
-    box.className = 'notice-box' + (byReason['지난 발주에 있음'] ? ' warn' : '');
+    box.className = 'notice-box' + (byReason['이미 받은 발주서에 있음'] ? ' warn' : '');
     if (state.view === 'excluded') {
       // 이미 빠진 주문을 보고 있으면 한 줄만
       box.appendChild(el('p', null, itemKeys.length
@@ -2578,11 +2594,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       return;
     }
     var p = el('p');
-    p.appendChild(el('b', null, (byReason['지난 발주에 있음'] ? '⚠ ' : 'ℹ ') + '발주서에서 빠진 주문 ' + out.length + '건'));
+    p.appendChild(el('b', null, (byReason['이미 받은 발주서에 있음'] ? '⚠ ' : 'ℹ ') + '발주서에서 빠진 주문 ' + out.length + '건'));
     p.appendChild(document.createTextNode(' — ' + Object.keys(byReason).map(function (k) { return k + ' ' + byReason[k] + '건'; }).join(', ')));
     box.appendChild(p);
-    if (byReason['지난 발주에 있음']) {
-      box.appendChild(el('p', { className: 'small' }, '지난 발주에 이미 넣은 주문 ' + byReason['지난 발주에 있음'] + '건은 두 번 보내지 않도록 뺐습니다. 쇼핑몰에서 발주확인 처리를 했는지 확인해 주세요.'));
+    if (byReason['이미 받은 발주서에 있음']) {
+      box.appendChild(el('p', { className: 'small' }, '이미 받은 발주서에 넣은 주문 ' + byReason['이미 받은 발주서에 있음'] + '건은 두 번 보내지 않도록 뺐습니다. 다시 넣으려면 맨 앞 체크를 켜세요.'));
     }
     if (itemKeys.length) {
       box.appendChild(el('p', { className: 'small' }, '입력한 품목(' + state.catalog.map(function (c) { return c.name; }).join(', ') + ')이 아닌 주문 ' + byItem[NOMATCH] + '건은 뺐습니다. 더 넣으려면 ② 에 품목을 적으세요.'));
@@ -2762,7 +2778,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       var parts = [];
       if (dup) parts.push('같은 내용이 또 있는 주문 ' + dup + '건');
       var histW = warn.filter(function (r) { return r.warns.indexOf('history-suspect') !== -1; }).length;
-      if (histW) parts.push('지난 발주와 내용이 같은 주문 ' + histW + '건');
+      if (histW) parts.push('이미 받은 발주서와 내용이 같은 주문 ' + histW + '건');
       if (amb) parts.push('여러 품목에 걸린 주문 ' + amb + '건');
       nodes.push(el('p', null, '🟡 ' + parts.join(', ') + ' — 두 번 발주되거나 다른 품목으로 갈 수 있습니다.'));
     }
@@ -3152,7 +3168,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   });
   $('clearHistoryBtn').addEventListener('click', function () {
     var n = Object.keys(state.history).length;
-    confirmBox('발주 기록을 지울까요?', [el('p', null, '최근 ' + HISTORY_DAYS + '일 동안 받은 발주서의 기록 ' + n + '건을 지웁니다. 지우면 어제 보낸 주문이 다시 들어와도 알려주지 못합니다.')], '기록 지우기')
+    confirmBox('발주 기록을 지울까요?', [el('p', null, '이번에 받은 발주서의 기록 ' + n + '건을 지웁니다. 지우면 같은 주문을 다시 올려도 빼지 않습니다. (화면을 껐다 켜면 기록은 저절로 지워집니다.)')], '기록 지우기')
       .then(function (ok) {
         if (!ok) return;
         state.history = {};

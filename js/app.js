@@ -1,10 +1,9 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v14';
-  var HISTORY_KEY = 'po.history.v1'; // 지난 발주 기록 (주문 키의 해시만 저장)
+  var APP_VERSION = 'v15';
+  var HISTORY_KEY = 'po.history.v1'; // 예전 버전이 브라우저에 남긴 발주 기록 (열 때 지움)
   var USED_KEY = 'po.used';
-  var HISTORY_DAYS = 14;
   var SESSION = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   var $ = function (id) { return document.getElementById(id); };
@@ -56,29 +55,20 @@
     try { localStorage.setItem(TERMS_KEY, state.termText); } catch (e) { storageOk = false; }
   }
 
-  /* ---------------- 지난 발주 기록 (여러 날에 걸친 중복 발주 방지) ---------------- */
+  /* ---------------- 이번에 받은 발주서 기록 (‘새로 시작’ 뒤 같은 주문을 다시 올렸을 때 이중 발주 방지) ---------------- */
 
   function today() {
     var d = new Date(), pad = function (n) { return (n < 10 ? '0' : '') + n; };
     return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   }
 
+  // 발주 기록은 화면을 열어 둔 동안만 쓴다. 껐다 켜면 항상 처음부터 (예전 버전이 남긴 기록도 지움)
   function loadHistory() {
-    var list = [];
-    try { list = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch (e) { list = []; }
-    if (!Array.isArray(list)) list = [];
-    var cutoff = new Date(Date.now() - HISTORY_DAYS * 864e5).toISOString().slice(0, 10);
     state.history = {};
-    list.forEach(function (x) {
-      if (x && typeof x.h === 'string' && typeof x.d === 'string' && x.d >= cutoff) state.history[x.h] = { d: x.d, s: x.s };
-    });
+    try { localStorage.removeItem(HISTORY_KEY); } catch (e) { /* 무시 */ }
   }
 
-  function saveHistory() {
-    var list = Object.keys(state.history).map(function (h) { return { h: h, d: state.history[h].d, s: state.history[h].s }; });
-    list.sort(function (a, b) { return a.d < b.d ? 1 : -1; });
-    try { localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 20000))); } catch (e) { storageOk = false; }
-  }
+  function saveHistory() { /* 브라우저에 저장하지 않음 */ }
 
   function recordHistory(rows) {
     var d = today();
@@ -244,6 +234,14 @@
         var res = P.convertSheets(sheetsOf(wb));
         if (res.error) throw friendly(res.code, res.error);
         if (!res.rows.length) throw friendly('NO_ROWS');
+        if (res.market === 'etc') {
+          var guess = P.marketFromFileName(f.name);
+          if (guess) {
+            res.market = guess;
+            res.marketLabel = P.MARKET_LABEL[guess];
+            res.rows.forEach(function (r) { r.market = guess; r.source = res.marketLabel; });
+          }
+        }
         result = res;
         return hashRows(res.rows);
       })
@@ -283,6 +281,7 @@
   /* ---------------- 행 상태 계산 ---------------- */
 
   var EDIT_FIELDS = ['name', 'item', 'qty', 'phone', 'address', 'memo'];
+  var MARKET_MARK = { smartstore: 'N', coupang: 'C', esm: 'G', kakao: 'K', extra: '추' };
 
   function validate(r) {
     var keepDefault = r.qtyDefaulted && r.qty === r.orig.qty;
@@ -361,7 +360,7 @@
       var hist = historyHit(r);
       if (hist) {
         // 주문번호가 같으면 이미 보낸 주문 → 기본 제외. 주문번호가 없으면 같은 손님의 재주문일 수 있어 확인만
-        if (r.keyKind !== 'c') reasons.push('지난 발주에 있음 (' + mmdd(hist.d) + ')');
+        if (r.keyKind !== 'c') reasons.push('이미 받은 발주서에 있음 (' + mmdd(hist.d) + ')');
         else warns.push('history-suspect');
       }
       if (firstFile[r.key] == null) {
@@ -626,7 +625,7 @@
     var cb = el('input', { type: 'checkbox', tabindex: '-1', 'aria-label': (r.name || '이름 없음') + ' 주문 발주 포함' });
     cb.addEventListener('change', function () { setIncluded(tr, r, cb.checked); });
     tdc.appendChild(cb);
-    tdc.appendChild(el('span', { className: 'mk ' + r.market, title: r.source, 'aria-label': r.source }, r.market === 'smartstore' ? 'N' : r.market === 'coupang' ? 'C' : r.market === 'esm' ? 'G' : r.market === 'extra' ? '추' : '·'));
+    tdc.appendChild(el('span', { className: 'mk ' + r.market, title: r.source, 'aria-label': r.source }, MARKET_MARK[r.market] || '·'));
     tdc.appendChild(el('span', { className: 'star', title: '추가 데이터에 있는 고객', 'aria-label': '추가 데이터에 있는 고객' }, '★'));
     tr.appendChild(tdc);
 
@@ -978,7 +977,7 @@
       }
     });
     var itemKeys = Object.keys(byItem);
-    box.className = 'notice-box' + (byReason['지난 발주에 있음'] ? ' warn' : '');
+    box.className = 'notice-box' + (byReason['이미 받은 발주서에 있음'] ? ' warn' : '');
     if (state.view === 'excluded') {
       // 이미 빠진 주문을 보고 있으면 한 줄만
       box.appendChild(el('p', null, itemKeys.length
@@ -988,11 +987,11 @@
       return;
     }
     var p = el('p');
-    p.appendChild(el('b', null, (byReason['지난 발주에 있음'] ? '⚠ ' : 'ℹ ') + '발주서에서 빠진 주문 ' + out.length + '건'));
+    p.appendChild(el('b', null, (byReason['이미 받은 발주서에 있음'] ? '⚠ ' : 'ℹ ') + '발주서에서 빠진 주문 ' + out.length + '건'));
     p.appendChild(document.createTextNode(' — ' + Object.keys(byReason).map(function (k) { return k + ' ' + byReason[k] + '건'; }).join(', ')));
     box.appendChild(p);
-    if (byReason['지난 발주에 있음']) {
-      box.appendChild(el('p', { className: 'small' }, '지난 발주에 이미 넣은 주문 ' + byReason['지난 발주에 있음'] + '건은 두 번 보내지 않도록 뺐습니다. 쇼핑몰에서 발주확인 처리를 했는지 확인해 주세요.'));
+    if (byReason['이미 받은 발주서에 있음']) {
+      box.appendChild(el('p', { className: 'small' }, '이미 받은 발주서에 넣은 주문 ' + byReason['이미 받은 발주서에 있음'] + '건은 두 번 보내지 않도록 뺐습니다. 다시 넣으려면 맨 앞 체크를 켜세요.'));
     }
     if (itemKeys.length) {
       box.appendChild(el('p', { className: 'small' }, '입력한 품목(' + state.catalog.map(function (c) { return c.name; }).join(', ') + ')이 아닌 주문 ' + byItem[NOMATCH] + '건은 뺐습니다. 더 넣으려면 ② 에 품목을 적으세요.'));
@@ -1172,7 +1171,7 @@
       var parts = [];
       if (dup) parts.push('같은 내용이 또 있는 주문 ' + dup + '건');
       var histW = warn.filter(function (r) { return r.warns.indexOf('history-suspect') !== -1; }).length;
-      if (histW) parts.push('지난 발주와 내용이 같은 주문 ' + histW + '건');
+      if (histW) parts.push('이미 받은 발주서와 내용이 같은 주문 ' + histW + '건');
       if (amb) parts.push('여러 품목에 걸린 주문 ' + amb + '건');
       nodes.push(el('p', null, '🟡 ' + parts.join(', ') + ' — 두 번 발주되거나 다른 품목으로 갈 수 있습니다.'));
     }
@@ -1562,7 +1561,7 @@
   });
   $('clearHistoryBtn').addEventListener('click', function () {
     var n = Object.keys(state.history).length;
-    confirmBox('발주 기록을 지울까요?', [el('p', null, '최근 ' + HISTORY_DAYS + '일 동안 받은 발주서의 기록 ' + n + '건을 지웁니다. 지우면 어제 보낸 주문이 다시 들어와도 알려주지 못합니다.')], '기록 지우기')
+    confirmBox('발주 기록을 지울까요?', [el('p', null, '이번에 받은 발주서의 기록 ' + n + '건을 지웁니다. 지우면 같은 주문을 다시 올려도 빼지 않습니다. (화면을 껐다 켜면 기록은 저절로 지워집니다.)')], '기록 지우기')
       .then(function (ok) {
         if (!ok) return;
         state.history = {};

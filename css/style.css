@@ -39,6 +39,8 @@
   --smartstore: #007a3d;
   --coupang: #c8102e;
   --esm: #3b5bdb;
+  --kakao: #fee500;
+  --kakao-ink: #191919;
   --focus: #f59e0b;
 }
 @media (prefers-color-scheme: dark) {
@@ -177,6 +179,7 @@ body {
 .badge.smartstore { background: var(--smartstore); color: var(--on-primary); }
 .badge.coupang { background: var(--coupang); color: var(--on-primary); }
 .badge.esm { background: var(--esm); color: var(--on-primary); }
+.badge.kakao { background: var(--kakao); color: var(--kakao-ink); }
 .badge.warn { background: var(--warn-soft); color: var(--warn); }
 
 /* 품목 입력 */
@@ -269,6 +272,7 @@ td.edited::after { content: ""; position: absolute; top: 3px; right: 3px; width:
 .mk.smartstore { background: var(--smartstore); }
 .mk.coupang { background: var(--coupang); }
 .mk.esm { background: var(--esm); }
+.mk.kakao { background: var(--kakao); color: var(--kakao-ink); }
 .mk.extra { background: var(--ok); width: auto; padding: 0 3px; }
 .c-cat { min-width: 110px; }
 .c-cat { position: relative; }
