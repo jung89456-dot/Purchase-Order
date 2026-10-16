@@ -45,6 +45,7 @@
             <li><b>쿠팡</b>: 쿠팡 Wing → 주문/배송 → 배송관리 → <b>엑셀 다운로드</b></li>
             <li><b>G마켓·옥션</b>: ESM PLUS → 주문관리 → 발송관리 → <b>엑셀 다운로드</b></li>
             <li><b>카카오쇼핑</b>: 카카오쇼핑 판매자센터 주문 엑셀. 파일 이름에 ‘카카오’가 들어 있으면 K로 표시됩니다.</li>
+            <li><b>11번가</b>: 셀러오피스에서 받은 발송 엑셀(‘발송준비중내역’). <b>11</b>로 표시됩니다.</li>
             <li><b>기타 쇼핑몰</b>: 수취인·상품명·수량·전화번호·주소 열이 있는 엑셀이면 자동으로 인식합니다.</li>
           </ul>
         </details>
@@ -122,7 +123,7 @@
         <h2 id="h-data">④ 추가 데이터 <span class="muted small">(선택)</span></h2>
         <button type="button" class="link-btn" id="dataClear" hidden>데이터 지우기</button>
       </div>
-      <p class="muted small">단골리스트 같은 엑셀을 올리고 고객 이름을 적으면, 그 고객의 <b>이름·연락처·주소</b>가 발주서에 줄로 들어갑니다. 올린 파일은 이 브라우저에 저장되어 다음에 열어도 남아 있고, 적은 이름은 그날 작업에만 쓰입니다.</p>
+      <p class="muted small">단골리스트 같은 엑셀을 올리고 고객 이름을 적으면, 그 고객의 <b>이름·연락처·주소</b>가 발주서에 줄로 들어갑니다. 올린 파일과 적은 이름은 화면을 열어 둔 동안만 쓰이고, 껐다 켜면 지워집니다.</p>
       <div class="data-drop" id="dataDrop">
         <input type="file" id="dataInput" accept=".xlsx,.xls,.csv,.txt" class="sr-only" tabindex="-1" aria-hidden="true">
         <button type="button" class="btn secondary" id="dataPick">추가 데이터 올리기</button>

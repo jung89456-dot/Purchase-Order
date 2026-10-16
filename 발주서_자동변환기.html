@@ -48,6 +48,7 @@
   --esm: #3b5bdb;
   --kakao: #fee500;
   --kakao-ink: #191919;
+  --st11: #f43142;
   --focus: #f59e0b;
 }
 @media (prefers-color-scheme: dark) {
@@ -187,6 +188,7 @@ body {
 .badge.coupang { background: var(--coupang); color: var(--on-primary); }
 .badge.esm { background: var(--esm); color: var(--on-primary); }
 .badge.kakao { background: var(--kakao); color: var(--kakao-ink); }
+.badge.st11 { background: var(--st11); color: #fff; }
 .badge.warn { background: var(--warn-soft); color: var(--warn); }
 
 /* 품목 입력 */
@@ -279,6 +281,7 @@ td.edited::after { content: ""; position: absolute; top: 3px; right: 3px; width:
 .mk.coupang { background: var(--coupang); }
 .mk.esm { background: var(--esm); }
 .mk.kakao { background: var(--kakao); color: var(--kakao-ink); }
+.mk.st11 { background: var(--st11); color: #fff; width: auto; min-width: 18px; padding: 0 2px; letter-spacing: -0.5px; }
 .mk.extra { background: var(--ok); width: auto; padding: 0 3px; }
 .c-cat { min-width: 110px; }
 .c-cat { position: relative; }
@@ -426,6 +429,7 @@ dialog .btn:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
             <li><b>쿠팡</b>: 쿠팡 Wing → 주문/배송 → 배송관리 → <b>엑셀 다운로드</b></li>
             <li><b>G마켓·옥션</b>: ESM PLUS → 주문관리 → 발송관리 → <b>엑셀 다운로드</b></li>
             <li><b>카카오쇼핑</b>: 카카오쇼핑 판매자센터 주문 엑셀. 파일 이름에 ‘카카오’가 들어 있으면 K로 표시됩니다.</li>
+            <li><b>11번가</b>: 셀러오피스에서 받은 발송 엑셀(‘발송준비중내역’). <b>11</b>로 표시됩니다.</li>
             <li><b>기타 쇼핑몰</b>: 수취인·상품명·수량·전화번호·주소 열이 있는 엑셀이면 자동으로 인식합니다.</li>
           </ul>
         </details>
@@ -503,7 +507,7 @@ dialog .btn:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
         <h2 id="h-data">④ 추가 데이터 <span class="muted small">(선택)</span></h2>
         <button type="button" class="link-btn" id="dataClear" hidden>데이터 지우기</button>
       </div>
-      <p class="muted small">단골리스트 같은 엑셀을 올리고 고객 이름을 적으면, 그 고객의 <b>이름·연락처·주소</b>가 발주서에 줄로 들어갑니다. 올린 파일은 이 브라우저에 저장되어 다음에 열어도 남아 있고, 적은 이름은 그날 작업에만 쓰입니다.</p>
+      <p class="muted small">단골리스트 같은 엑셀을 올리고 고객 이름을 적으면, 그 고객의 <b>이름·연락처·주소</b>가 발주서에 줄로 들어갑니다. 올린 파일과 적은 이름은 화면을 열어 둔 동안만 쓰이고, 껐다 켜면 지워집니다.</p>
       <div class="data-drop" id="dataDrop">
         <input type="file" id="dataInput" accept=".xlsx,.xls,.csv,.txt" class="sr-only" tabindex="-1" aria-hidden="true">
         <button type="button" class="btn secondary" id="dataPick">추가 데이터 올리기</button>
@@ -790,12 +794,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     return mapping;
   }
 
-  function detectMarket(headers) {
+  /** @param preamble (선택) 머리글 위의 제목·안내 줄들. 11번가 ‘발송준비중내역’처럼 열 이름만으로는 모르는 양식에 씀 */
+  function detectMarket(headers, preamble) {
     var set = {};
     headers.forEach(function (h) { set[norm(h)] = true; });
+    var pre = norm((preamble || []).map(function (r) { return (r || []).map(cellText).join(' '); }).join(' '));
     if (set['상품주문번호'] && (set['수취인연락처1'] || set['통합배송지'])) return 'smartstore';
     if (set['묶음배송번호'] || set['구매수(수량)'] || (set['수취인이름'] && set['노출상품명(옵션명)'])) return 'coupang';
     if (set['장바구니번호(결제번호)'] || set['스마일캐시적립'] || (set['수령인명'] && set['배송시요구사항'])) return 'esm';
+    if (Object.keys(set).some(function (h) { return /11번가|11st|11pay/.test(h); }) || set['주문순번'] || /11번가|11st/.test(pre) ||
+        (/발송준비중내역/.test(pre) && set['수취인'] && set['휴대폰번호'])) return 'st11';
     if (Object.keys(set).some(function (h) { return /카카오|톡딜|톡스토어|톡채널|채널상품번호/.test(h); })) return 'kakao';
     return 'etc';
   }
@@ -807,10 +815,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     if (/스마트스토어|smartstore|네이버/.test(n)) return 'smartstore';
     if (/쿠팡|coupang|wing/.test(n)) return 'coupang';
     if (/g마켓|지마켓|gmarket|옥션|auction|esm/.test(n)) return 'esm';
+    if (/11번가|11st|logistics/.test(n)) return 'st11'; // 11번가 발송 엑셀 기본 이름: ‘…_logistics.xls’
     return '';
   }
 
-  var MARKET_LABEL = { smartstore: '스마트스토어', coupang: '쿠팡', esm: 'G마켓·옥션', kakao: '카카오쇼핑', etc: '기타 쇼핑몰' };
+  var MARKET_LABEL = { smartstore: '스마트스토어', coupang: '쿠팡', esm: 'G마켓·옥션', kakao: '카카오쇼핑', st11: '11번가', etc: '기타 쇼핑몰' };
 
   var PHONE_PATTERNS = [
     [/^(050\d)(\d{4})(\d{4})$/, '$1-$2-$3'],     // 안심번호 0504-xxxx-xxxx
@@ -1146,7 +1155,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
     var headers = rows[hr].map(cellText);
     var mapping = mapColumns(headers);
-    var market = detectMarket(headers);
+    var market = detectMarket(headers, rows.slice(0, hr));
     var missing = REQUIRED.filter(function (f) {
       if (f === 'address') return mapping.address == null && mapping.addressBase == null;
       return mapping[f] == null;
@@ -1606,7 +1615,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v16';
+  var APP_VERSION = 'v17';
   var HISTORY_KEY = 'po.history.v1'; // 예전 버전이 브라우저에 남긴 발주 기록 (열 때 지움)
   var USED_KEY = 'po.used';
   var SESSION = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -1881,7 +1890,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   /* ---------------- 행 상태 계산 ---------------- */
 
   var EDIT_FIELDS = ['name', 'item', 'qty', 'phone', 'address', 'memo'];
-  var MARKET_MARK = { smartstore: 'N', coupang: 'C', esm: 'G', kakao: 'K', extra: '추' };
+  var MARKET_MARK = { smartstore: 'N', coupang: 'C', esm: 'G', kakao: 'K', st11: '11', extra: '추' };
 
   function validate(r) {
     var keepDefault = r.qtyDefaulted && r.qty === r.orig.qty;
@@ -2902,36 +2911,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   var REF_KEY = 'po.refdata.v1';
   var REF_QUERY_KEY = 'po.refquery.v1';
   var REF_PREVIEW = 200;
-  var ref = { name: '', headers: [], rows: [], hidden: {}, query: '', withOrder: true, saved: true };
+  var ref = { name: '', headers: [], rows: [], hidden: {}, query: '', withOrder: true };
 
+  // 추가 데이터는 화면을 열어 둔 동안만 쓴다. 껐다 켜면 빈 상태 (예전 버전이 저장해 둔 파일·이름도 지움)
   function loadRef() {
-    try {
-      var d = JSON.parse(localStorage.getItem(REF_KEY) || 'null');
-      if (d && Array.isArray(d.headers) && Array.isArray(d.rows)) {
-        ref.name = String(d.name || '');
-        ref.headers = d.headers.map(String);
-        ref.rows = d.rows.filter(Array.isArray).map(function (r) { return r.map(function (v) { return v == null ? '' : String(v); }); });
-        ref.hidden = d.hidden && typeof d.hidden === 'object' ? d.hidden : {};
-        ref.withOrder = d.withOrder !== false;
-      }
-      // 적은 이름은 그날 작업용이라 저장하지 않는다 (다음 날 같은 고객이 또 발주서에 들어가지 않게)
-      localStorage.removeItem(REF_QUERY_KEY);
-    } catch (e) { /* 저장된 데이터가 없거나 읽을 수 없으면 빈 상태로 */ }
+    try { localStorage.removeItem(REF_KEY); localStorage.removeItem(REF_QUERY_KEY); } catch (e) { /* 무시 */ }
     $('dataQuery').value = ref.query;
     $('dataWithOrder').checked = ref.withOrder;
-  }
-
-  function saveRef() {
-    try {
-      if (ref.rows.length) {
-        localStorage.setItem(REF_KEY, JSON.stringify({ name: ref.name, headers: ref.headers, rows: ref.rows, hidden: ref.hidden, withOrder: ref.withOrder }));
-      } else {
-        localStorage.removeItem(REF_KEY);
-      }
-      ref.saved = true;
-    } catch (e) {
-      ref.saved = false; // 데이터가 너무 크면 이번에만 쓰고 저장은 못 함
-    }
   }
 
 
@@ -2988,7 +2974,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     $('dataDrop').classList.toggle('loaded', has);
     $('dataPick').textContent = has ? '다른 파일로 바꾸기' : '추가 데이터 올리기';
     $('dataInfo').textContent = has
-      ? ref.name + ' · ' + ref.rows.length + '행 · 열 ' + ref.headers.length + '개' + (ref.saved ? '' : ' · 파일이 커서 저장하지 못했습니다(다음에 다시 올려 주세요)')
+      ? ref.name + ' · ' + ref.rows.length + '행 · 열 ' + ref.headers.length + '개'
       : '단골리스트 등 (.xlsx · .xls · .csv)';
     $('dataQueryClear').hidden = !ref.query;
     if (!has) return;
@@ -3054,7 +3040,6 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         ref.headers = best.headers;
         ref.rows = best.rows;
         ref.hidden = {};
-        saveRef();
         render();
         toast('추가 데이터 ‘' + file.name + '’ ' + ref.rows.length + '행을 올렸습니다. 필요한 고객 이름을 적어 주세요.');
         $('dataQuery').focus();
@@ -3155,25 +3140,25 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   var refTimer;
   $('dataQuery').addEventListener('input', function () {
     clearTimeout(refTimer);
-    refTimer = setTimeout(function () { ref.query = $('dataQuery').value; saveRef(); render(); }, 250);
+    refTimer = setTimeout(function () { ref.query = $('dataQuery').value; render(); }, 250);
   });
   $('dataQuery').addEventListener('keydown', function (e) {
     if (e.key !== 'Enter') return;
     e.preventDefault();
     clearTimeout(refTimer);
-    ref.query = $('dataQuery').value; saveRef(); render();
+    ref.query = $('dataQuery').value; render();
   });
-  $('dataWithOrder').addEventListener('change', function () { ref.withOrder = $('dataWithOrder').checked; saveRef(); render(); });
+  $('dataWithOrder').addEventListener('change', function () { ref.withOrder = $('dataWithOrder').checked; render(); });
   $('dataQueryClear').addEventListener('click', function () {
-    $('dataQuery').value = ''; ref.query = ''; saveRef(); render(); $('dataQuery').focus();
+    $('dataQuery').value = ''; ref.query = ''; render(); $('dataQuery').focus();
   });
   $('dataDownload').addEventListener('click', downloadRef);
   $('dataClear').addEventListener('click', function () {
-    confirmBox('추가 데이터를 지울까요?', [el('p', null, '‘' + ref.name + '’ 데이터를 이 브라우저에서 지웁니다. 주문 목록에는 영향이 없습니다.')], '지우기')
+    confirmBox('추가 데이터를 지울까요?', [el('p', null, '‘' + ref.name + '’ 데이터를 지웁니다. 주문 목록에는 영향이 없습니다.')], '지우기')
       .then(function (ok) {
         if (!ok) return;
         ref.name = ''; ref.headers = []; ref.rows = []; ref.hidden = {};
-        saveRef(); render();
+        render();
         toast('추가 데이터를 지웠습니다.');
       });
   });

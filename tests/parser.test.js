@@ -136,6 +136,14 @@ test('마켓: 카카오 열 이름, 파일 이름으로 짐작', () => {
   assert.strictEqual(P.marketFromFileName('Kakao Store orders.csv'), 'kakao');
   assert.strictEqual(P.marketFromFileName('톡스토어 주문.xlsx'), 'kakao');
   assert.strictEqual(P.marketFromFileName('주문목록.xlsx'), '');
+  // 11번가: 머리글 위 ‘발송준비중내역’ 제목, 11번가 열 이름, 파일 이름
+  const h11 = ['수취인', '상품명', '수량', '주문금액', '휴대폰번호', '주소', '배송메시지'];
+  assert.strictEqual(P.detectMarket(h11, [['안내'], ['발송준비중내역']]), 'st11');
+  assert.strictEqual(P.detectMarket(h11), 'etc');
+  assert.strictEqual(P.detectMarket(['주문번호', '주문순번', '수취인']), 'st11');
+  assert.strictEqual(P.marketFromFileName('72051432_logistics.xls'), 'st11');
+  assert.strictEqual(P.marketFromFileName('11번가 주문.xlsx'), 'st11');
+  assert.strictEqual(P.MARKET_LABEL.st11, '11번가');
 });
 
 test('품목명 결합 — 옵션이 상품명 끝에 붙은 경우만 생략', () => {

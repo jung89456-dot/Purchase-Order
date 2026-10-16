@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v16';
+  var APP_VERSION = 'v17';
   var HISTORY_KEY = 'po.history.v1'; // 예전 버전이 브라우저에 남긴 발주 기록 (열 때 지움)
   var USED_KEY = 'po.used';
   var SESSION = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -276,7 +276,7 @@
   /* ---------------- 행 상태 계산 ---------------- */
 
   var EDIT_FIELDS = ['name', 'item', 'qty', 'phone', 'address', 'memo'];
-  var MARKET_MARK = { smartstore: 'N', coupang: 'C', esm: 'G', kakao: 'K', extra: '추' };
+  var MARKET_MARK = { smartstore: 'N', coupang: 'C', esm: 'G', kakao: 'K', st11: '11', extra: '추' };
 
   function validate(r) {
     var keepDefault = r.qtyDefaulted && r.qty === r.orig.qty;
@@ -1297,36 +1297,13 @@
   var REF_KEY = 'po.refdata.v1';
   var REF_QUERY_KEY = 'po.refquery.v1';
   var REF_PREVIEW = 200;
-  var ref = { name: '', headers: [], rows: [], hidden: {}, query: '', withOrder: true, saved: true };
+  var ref = { name: '', headers: [], rows: [], hidden: {}, query: '', withOrder: true };
 
+  // 추가 데이터는 화면을 열어 둔 동안만 쓴다. 껐다 켜면 빈 상태 (예전 버전이 저장해 둔 파일·이름도 지움)
   function loadRef() {
-    try {
-      var d = JSON.parse(localStorage.getItem(REF_KEY) || 'null');
-      if (d && Array.isArray(d.headers) && Array.isArray(d.rows)) {
-        ref.name = String(d.name || '');
-        ref.headers = d.headers.map(String);
-        ref.rows = d.rows.filter(Array.isArray).map(function (r) { return r.map(function (v) { return v == null ? '' : String(v); }); });
-        ref.hidden = d.hidden && typeof d.hidden === 'object' ? d.hidden : {};
-        ref.withOrder = d.withOrder !== false;
-      }
-      // 적은 이름은 그날 작업용이라 저장하지 않는다 (다음 날 같은 고객이 또 발주서에 들어가지 않게)
-      localStorage.removeItem(REF_QUERY_KEY);
-    } catch (e) { /* 저장된 데이터가 없거나 읽을 수 없으면 빈 상태로 */ }
+    try { localStorage.removeItem(REF_KEY); localStorage.removeItem(REF_QUERY_KEY); } catch (e) { /* 무시 */ }
     $('dataQuery').value = ref.query;
     $('dataWithOrder').checked = ref.withOrder;
-  }
-
-  function saveRef() {
-    try {
-      if (ref.rows.length) {
-        localStorage.setItem(REF_KEY, JSON.stringify({ name: ref.name, headers: ref.headers, rows: ref.rows, hidden: ref.hidden, withOrder: ref.withOrder }));
-      } else {
-        localStorage.removeItem(REF_KEY);
-      }
-      ref.saved = true;
-    } catch (e) {
-      ref.saved = false; // 데이터가 너무 크면 이번에만 쓰고 저장은 못 함
-    }
   }
 
 
@@ -1383,7 +1360,7 @@
     $('dataDrop').classList.toggle('loaded', has);
     $('dataPick').textContent = has ? '다른 파일로 바꾸기' : '추가 데이터 올리기';
     $('dataInfo').textContent = has
-      ? ref.name + ' · ' + ref.rows.length + '행 · 열 ' + ref.headers.length + '개' + (ref.saved ? '' : ' · 파일이 커서 저장하지 못했습니다(다음에 다시 올려 주세요)')
+      ? ref.name + ' · ' + ref.rows.length + '행 · 열 ' + ref.headers.length + '개'
       : '단골리스트 등 (.xlsx · .xls · .csv)';
     $('dataQueryClear').hidden = !ref.query;
     if (!has) return;
@@ -1449,7 +1426,6 @@
         ref.headers = best.headers;
         ref.rows = best.rows;
         ref.hidden = {};
-        saveRef();
         render();
         toast('추가 데이터 ‘' + file.name + '’ ' + ref.rows.length + '행을 올렸습니다. 필요한 고객 이름을 적어 주세요.');
         $('dataQuery').focus();
@@ -1550,25 +1526,25 @@
   var refTimer;
   $('dataQuery').addEventListener('input', function () {
     clearTimeout(refTimer);
-    refTimer = setTimeout(function () { ref.query = $('dataQuery').value; saveRef(); render(); }, 250);
+    refTimer = setTimeout(function () { ref.query = $('dataQuery').value; render(); }, 250);
   });
   $('dataQuery').addEventListener('keydown', function (e) {
     if (e.key !== 'Enter') return;
     e.preventDefault();
     clearTimeout(refTimer);
-    ref.query = $('dataQuery').value; saveRef(); render();
+    ref.query = $('dataQuery').value; render();
   });
-  $('dataWithOrder').addEventListener('change', function () { ref.withOrder = $('dataWithOrder').checked; saveRef(); render(); });
+  $('dataWithOrder').addEventListener('change', function () { ref.withOrder = $('dataWithOrder').checked; render(); });
   $('dataQueryClear').addEventListener('click', function () {
-    $('dataQuery').value = ''; ref.query = ''; saveRef(); render(); $('dataQuery').focus();
+    $('dataQuery').value = ''; ref.query = ''; render(); $('dataQuery').focus();
   });
   $('dataDownload').addEventListener('click', downloadRef);
   $('dataClear').addEventListener('click', function () {
-    confirmBox('추가 데이터를 지울까요?', [el('p', null, '‘' + ref.name + '’ 데이터를 이 브라우저에서 지웁니다. 주문 목록에는 영향이 없습니다.')], '지우기')
+    confirmBox('추가 데이터를 지울까요?', [el('p', null, '‘' + ref.name + '’ 데이터를 지웁니다. 주문 목록에는 영향이 없습니다.')], '지우기')
       .then(function (ok) {
         if (!ok) return;
         ref.name = ''; ref.headers = []; ref.rows = []; ref.hidden = {};
-        saveRef(); render();
+        render();
         toast('추가 데이터를 지웠습니다.');
       });
   });

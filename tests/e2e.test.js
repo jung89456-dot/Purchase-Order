@@ -537,15 +537,36 @@ test('④ 추가 데이터: 이름을 적으면 이름·연락처·주소가 당
     // 끄면 빠짐
     await page.uncheck('#dataWithOrder');
     assert.strictEqual(await included(page), 7);
-    // 다시 열면 올린 파일은 남고, 적은 이름은 비어 있음 (다음 날 같은 고객이 또 들어가지 않게)
+    // 껐다 켜면 올린 파일도 적은 이름도 없음 (예전 버전이 저장해 둔 데이터도 지움)
+    await page.evaluate(() => localStorage.setItem('po.refdata.v1', JSON.stringify({ name: 'old.xlsx', headers: ['고객명'], rows: [['가']] })));
     const page2 = await ctx.newPage();
     await page2.goto(url);
-    await page2.waitForSelector('#dataBody:not([hidden])');
+    await page2.waitForFunction(() => document.getElementById('dataInput') != null);
+    assert.ok(await page2.locator('#dataBody').isHidden());
     assert.strictEqual(await page2.inputValue('#dataQuery'), '');
+    assert.strictEqual(await page2.evaluate(() => localStorage.getItem('po.refdata.v1')), null);
     assert.deepStrictEqual(errors, []);
   } finally {
     await browser.close();
   }
+});
+
+test('11번가: 발송준비중내역 양식을 알아보고 11 로 표시', async () => {
+  // 실제 11번가 ‘…_logistics.xls’와 같은 구성 (가상 데이터): 안내 줄, 제목 줄, 그다음 머리글
+  const st11 = mkXlsx([
+    ['선물하기 주문이 제주/도서산간 지역으로 배송될 경우 선물 받는 분께 추가 배송비에 대해 안내 후 입금 확인이 되면 배송 처리해 주세요'],
+    ['발송준비중내역'],
+    ['수취인', '상품명', '수량', '주문금액', '휴대폰번호', '주소', '배송메시지'],
+    ['가나다', '생갓 여수 돌산갓 2kg', 1, '30,000', '010-1111-2222', '경기도 수원시 팔달구 효원로 1', '문 앞에 놓아주세요'],
+  ]);
+  await withPage(async (page) => {
+    await upload(page, [{ name: '12345678_logistics.xlsx', mimeType: T, buffer: st11 }]);
+    await page.waitForFunction(() => window.__po.state.files.length === 1 && !window.__po.state.busy);
+    const r = await page.evaluate(() => window.__po.state.rows.map((x) => [x.market, x.source, x.name, x.phone, x.address, x.memo]));
+    assert.deepStrictEqual(r, [['st11', '11번가', '가나다', '010-1111-2222', '경기도 수원시 팔달구 효원로 1', '문 앞에 놓아주세요']]);
+    assert.deepStrictEqual(await page.locator('#previewTable .mk').allTextContents(), ['11']);
+    assert.match(await page.textContent('#fileList'), /11번가/);
+  });
 });
 
 test('카카오쇼핑: 열 이름 또는 파일 이름으로 알아보고 K 로 표시', async () => {

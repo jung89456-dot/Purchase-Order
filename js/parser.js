@@ -142,12 +142,16 @@
     return mapping;
   }
 
-  function detectMarket(headers) {
+  /** @param preamble (선택) 머리글 위의 제목·안내 줄들. 11번가 ‘발송준비중내역’처럼 열 이름만으로는 모르는 양식에 씀 */
+  function detectMarket(headers, preamble) {
     var set = {};
     headers.forEach(function (h) { set[norm(h)] = true; });
+    var pre = norm((preamble || []).map(function (r) { return (r || []).map(cellText).join(' '); }).join(' '));
     if (set['상품주문번호'] && (set['수취인연락처1'] || set['통합배송지'])) return 'smartstore';
     if (set['묶음배송번호'] || set['구매수(수량)'] || (set['수취인이름'] && set['노출상품명(옵션명)'])) return 'coupang';
     if (set['장바구니번호(결제번호)'] || set['스마일캐시적립'] || (set['수령인명'] && set['배송시요구사항'])) return 'esm';
+    if (Object.keys(set).some(function (h) { return /11번가|11st|11pay/.test(h); }) || set['주문순번'] || /11번가|11st/.test(pre) ||
+        (/발송준비중내역/.test(pre) && set['수취인'] && set['휴대폰번호'])) return 'st11';
     if (Object.keys(set).some(function (h) { return /카카오|톡딜|톡스토어|톡채널|채널상품번호/.test(h); })) return 'kakao';
     return 'etc';
   }
@@ -159,10 +163,11 @@
     if (/스마트스토어|smartstore|네이버/.test(n)) return 'smartstore';
     if (/쿠팡|coupang|wing/.test(n)) return 'coupang';
     if (/g마켓|지마켓|gmarket|옥션|auction|esm/.test(n)) return 'esm';
+    if (/11번가|11st|logistics/.test(n)) return 'st11'; // 11번가 발송 엑셀 기본 이름: ‘…_logistics.xls’
     return '';
   }
 
-  var MARKET_LABEL = { smartstore: '스마트스토어', coupang: '쿠팡', esm: 'G마켓·옥션', kakao: '카카오쇼핑', etc: '기타 쇼핑몰' };
+  var MARKET_LABEL = { smartstore: '스마트스토어', coupang: '쿠팡', esm: 'G마켓·옥션', kakao: '카카오쇼핑', st11: '11번가', etc: '기타 쇼핑몰' };
 
   var PHONE_PATTERNS = [
     [/^(050\d)(\d{4})(\d{4})$/, '$1-$2-$3'],     // 안심번호 0504-xxxx-xxxx
@@ -498,7 +503,7 @@
     }
     var headers = rows[hr].map(cellText);
     var mapping = mapColumns(headers);
-    var market = detectMarket(headers);
+    var market = detectMarket(headers, rows.slice(0, hr));
     var missing = REQUIRED.filter(function (f) {
       if (f === 'address') return mapping.address == null && mapping.addressBase == null;
       return mapping[f] == null;
