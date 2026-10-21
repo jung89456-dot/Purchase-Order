@@ -432,11 +432,15 @@
     return { groups: groups, exclude: exclude, labels: labels };
   }
 
-  /** 적은 조건(쉼표로 나눈 것) 중 한 행도 찾지 못한 것 */
+  /** 적은 조건(쉼표로 나눈 것) 중 한 행도 찾지 못한 것 (같은 것을 두 번 적었으면 한 번만) */
   function unmatchedGroups(table, query) {
+    var seen = {};
     return query.groups.map(function (g, gi) {
       var hit = table.rows.some(function (row) { return g.every(function (c) { return condHit(row, table.headers, c); }); });
-      return hit ? null : query.labels[gi];
+      var label = query.labels[gi];
+      if (hit || seen[norm(label)]) return null;
+      seen[norm(label)] = true;
+      return label;
     }).filter(Boolean);
   }
 
@@ -453,13 +457,22 @@
     return c >= 0 && norm(row[c]).indexOf(cond.value) !== -1;
   }
 
-  /** 조건에 맞는 행의 번호 목록 */
+  /**
+   * 조건에 맞는 행의 번호 목록.
+   * 같은 조건을 여러 번 적으면(‘문지호, 문지호’) 그 행이 그만큼 반복된다 (같은 고객을 두 줄로 발주).
+   * 서로 다른 조건이 한 행에 겹쳐 맞는 것(‘서울, VIP’)은 한 번만.
+   */
   function filterDataRows(table, query) {
+    var times = {};
+    query.labels.forEach(function (l) { var k = norm(l); times[k] = (times[k] || 0) + 1; });
     var out = [];
     table.rows.forEach(function (row, i) {
       if (query.exclude.some(function (c) { return condHit(row, table.headers, c); })) return;
-      if (query.groups.length && !query.groups.some(function (g) { return g.every(function (c) { return condHit(row, table.headers, c); }); })) return;
-      out.push(i);
+      var n = query.groups.length ? 0 : 1;
+      query.groups.forEach(function (g, gi) {
+        if (g.every(function (c) { return condHit(row, table.headers, c); })) n = Math.max(n, times[norm(query.labels[gi])]);
+      });
+      for (var k = 0; k < n; k++) out.push(i);
     });
     return out;
   }

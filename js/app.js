@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v17';
+  var APP_VERSION = 'v18';
   var HISTORY_KEY = 'po.history.v1'; // 예전 버전이 브라우저에 남긴 발주 기록 (열 때 지움)
   var USED_KEY = 'po.used';
   var SESSION = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -1335,14 +1335,23 @@
   }
 
   // 적은 이름에 해당하는 고객 줄을 발주서에 맞춘다 (이미 있는 줄은 고친 내용 유지)
+  // 같은 이름을 두 번 적으면 그 고객 줄도 두 줄
   function syncExtraRows() {
     var want = {};
-    if (ref.withOrder && ref.rows.length) refResult().idx.forEach(function (i) { want[i] = true; });
-    state.rows = state.rows.filter(function (r) { return !r.extra || want[r.refRow]; });
+    if (ref.withOrder && ref.rows.length) refResult().idx.forEach(function (i) { want[i] = (want[i] || 0) + 1; });
     var have = {};
-    state.rows.forEach(function (r) { if (r.extra) have[r.refRow] = true; });
+    state.rows = state.rows.filter(function (r) {
+      if (!r.extra) return true;
+      have[r.refRow] = (have[r.refRow] || 0) + 1;
+      return have[r.refRow] <= (want[r.refRow] || 0);
+    });
     Object.keys(want).map(Number).sort(function (a, b) { return a - b; }).forEach(function (i) {
-      if (!have[i]) state.rows.push(makeExtraRow(i));
+      var at = -1;
+      state.rows.forEach(function (r, k) { if (r.extra && r.refRow === i) at = k; });
+      for (var n = Math.min(have[i] || 0, want[i]); n < want[i]; n++) {
+        var row = makeExtraRow(i);
+        if (at >= 0) state.rows.splice(++at, 0, row); else state.rows.push(row);
+      }
     });
   }
 
@@ -1378,8 +1387,12 @@
     if (res.empty) {
       sum.appendChild(document.createTextNode('위 칸에 고객 이름 등을 적으면 해당하는 내용을 찾습니다. (전체 ' + ref.rows.length + '행)'));
     } else {
-      sum.appendChild(el('b', null, res.idx.length + '명'));
-      sum.appendChild(document.createTextNode(' 찾음' + (ref.withOrder && res.idx.length ? ' → ③ 발주서 표 맨 아래에 줄로 들어갔습니다. 구입품목·수량을 적어 주세요.' : '')));
+      var people = {};
+      res.idx.forEach(function (i) { people[i] = true; });
+      var nPeople = Object.keys(people).length;
+      sum.appendChild(el('b', null, nPeople + '명'));
+      sum.appendChild(document.createTextNode(' 찾음' + (res.idx.length > nPeople ? ' (같은 이름을 여러 번 적어 ' + res.idx.length + '줄)' : '') +
+        (ref.withOrder && res.idx.length ? ' → ③ 발주서 표 맨 아래에 줄로 들어갔습니다. 구입품목·수량을 적어 주세요.' : '')));
     }
     var notes = [];
     if (res.missing.length) notes.push('‘' + res.missing.join(', ') + '’은(는) 찾지 못했습니다');

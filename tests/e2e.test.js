@@ -551,6 +551,34 @@ test('④ 추가 데이터: 이름을 적으면 이름·연락처·주소가 당
   }
 });
 
+test('④ 추가 데이터: 같은 이름을 두 번 적으면 당일발주에 두 줄', async () => {
+  await withPage(async (page) => {
+    await upload(page, [sample('스마트스토어_주문샘플.xlsx')]);
+    await page.waitForFunction(() => window.__po.state.files.length === 1 && !window.__po.state.busy);
+    const base = await included(page);
+    await page.setInputFiles('#dataInput', [sample('단골고객_샘플.xlsx')]);
+    await page.waitForSelector('#dataBody:not([hidden])');
+    await page.fill('#dataQuery', '문지호, 송하윤, 문지호');
+    await page.press('#dataQuery', 'Enter');
+    assert.match(await page.textContent('#dataSummary'), /2명 찾음 \(같은 이름을 여러 번 적어 3줄\)/);
+    const names = () => page.evaluate(() => window.__po.state.rows.filter((r) => r.extra).map((r) => [r.name, r.item]));
+    assert.deepStrictEqual(await names(), [['송하윤', ''], ['문지호', ''], ['문지호', '']]);
+    assert.strictEqual(await included(page), base + 3);
+    // 첫 번째 문지호 줄에 품목을 적고, 이름을 한 번으로 줄이면 고친 줄은 남는다
+    const row = page.locator('#previewTable tbody tr[data-uid]').nth(base + 1);
+    await row.locator('td[data-field="item"]').click();
+    await page.keyboard.type('칼국수 1kg');
+    await page.keyboard.press('Enter');
+    await page.fill('#dataQuery', '문지호, 송하윤');
+    await page.press('#dataQuery', 'Enter');
+    assert.deepStrictEqual(await names(), [['송하윤', ''], ['문지호', '칼국수 1kg']]);
+    // 다시 두 번 → 새 줄이 바로 아래에 붙음
+    await page.fill('#dataQuery', '문지호, 송하윤, 문지호');
+    await page.press('#dataQuery', 'Enter');
+    assert.deepStrictEqual(await names(), [['송하윤', ''], ['문지호', '칼국수 1kg'], ['문지호', '']]);
+  });
+});
+
 test('11번가: 발송준비중내역 양식을 알아보고 11 로 표시', async () => {
   // 실제 11번가 ‘…_logistics.xls’와 같은 구성 (가상 데이터): 안내 줄, 제목 줄, 그다음 머리글
   const st11 = mkXlsx([

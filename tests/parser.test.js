@@ -256,6 +256,11 @@ test('추가 데이터: 머리글 찾기, 조건(쉼표=또는, 띄어쓰기=그
   assert.deepStrictEqual(pick('-탈퇴'), ['김하늘', '최민준']);
   assert.deepStrictEqual(P.unknownQueryColumns(t, P.parseDataQuery('없는열:1')), ['없는열']);
   assert.deepStrictEqual(P.unmatchedGroups(t, P.parseDataQuery('김하늘, 박민수')), ['박민수']);
+  // 같은 이름을 두 번 적으면 두 줄, 서로 다른 조건이 한 사람에 겹치면 한 줄
+  assert.deepStrictEqual(pick('최민준, 김하늘, 최민준'), ['김하늘', '최민준', '최민준']);
+  assert.deepStrictEqual(pick('김하늘, 김하늘, 김하늘'), ['김하늘', '김하늘', '김하늘']);
+  assert.deepStrictEqual(pick('서울, VIP'), ['김하늘', '최민준']);
+  assert.deepStrictEqual(P.unmatchedGroups(t, P.parseDataQuery('박민수, 박민수')), ['박민수']);
   assert.deepStrictEqual(P.customerColumns(t.headers), { phone: 1, name: 0, address: -1 });
   assert.deepStrictEqual(P.customerColumns(['이름', '휴대폰', '배송지 주소', '우편번호']), { phone: 1, name: 0, address: 2 });
   assert.strictEqual(P.phoneDigits(t.rows[2][1]), '01022223333');
