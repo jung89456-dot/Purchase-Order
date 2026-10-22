@@ -144,6 +144,10 @@ test('마켓: 카카오 열 이름, 파일 이름으로 짐작', () => {
   assert.strictEqual(P.marketFromFileName('72051432_logistics.xls'), 'st11');
   assert.strictEqual(P.marketFromFileName('11번가 주문.xlsx'), 'st11');
   assert.strictEqual(P.MARKET_LABEL.st11, '11번가');
+  // 토스쇼핑
+  assert.strictEqual(P.detectMarket(['주문번호', '주문상품번호', '배송속성', '받은 혜택', '수령인명', '수령인 연락처', '배송지']), 'toss');
+  assert.strictEqual(P.marketFromFileName('토스쇼핑_주문내역.xlsx'), 'toss');
+  assert.strictEqual(P.MARKET_LABEL.toss, '토스쇼핑');
 });
 
 test('품목명 결합 — 옵션이 상품명 끝에 붙은 경우만 생략', () => {

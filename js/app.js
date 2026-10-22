@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = 'v18';
+  var APP_VERSION = 'v19';
   var HISTORY_KEY = 'po.history.v1'; // 예전 버전이 브라우저에 남긴 발주 기록 (열 때 지움)
   var USED_KEY = 'po.used';
   var SESSION = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -276,7 +276,7 @@
   /* ---------------- 행 상태 계산 ---------------- */
 
   var EDIT_FIELDS = ['name', 'item', 'qty', 'phone', 'address', 'memo'];
-  var MARKET_MARK = { smartstore: 'N', coupang: 'C', esm: 'G', kakao: 'K', st11: '11', extra: '추' };
+  var MARKET_MARK = { smartstore: 'N', coupang: 'C', esm: 'G', kakao: 'K', st11: '11', toss: 'T', extra: '추' };
 
   function validate(r) {
     var keepDefault = r.qtyDefaulted && r.qty === r.orig.qty;

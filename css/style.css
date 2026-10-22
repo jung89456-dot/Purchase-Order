@@ -42,6 +42,7 @@
   --kakao: #fee500;
   --kakao-ink: #191919;
   --st11: #f43142;
+  --toss: #0064ff;
   --focus: #f59e0b;
 }
 @media (prefers-color-scheme: dark) {
@@ -182,6 +183,7 @@ body {
 .badge.esm { background: var(--esm); color: var(--on-primary); }
 .badge.kakao { background: var(--kakao); color: var(--kakao-ink); }
 .badge.st11 { background: var(--st11); color: #fff; }
+.badge.toss { background: var(--toss); color: #fff; }
 .badge.warn { background: var(--warn-soft); color: var(--warn); }
 
 /* 품목 입력 */
@@ -274,6 +276,7 @@ td.edited::after { content: ""; position: absolute; top: 3px; right: 3px; width:
 .mk.coupang { background: var(--coupang); }
 .mk.esm { background: var(--esm); }
 .mk.kakao { background: var(--kakao); color: var(--kakao-ink); }
+.mk.toss { background: var(--toss); color: #fff; }
 .mk.st11 { background: var(--st11); color: #fff; width: auto; min-width: 18px; padding: 0 2px; letter-spacing: -0.5px; }
 .mk.extra { background: var(--ok); width: auto; padding: 0 3px; }
 .c-cat { min-width: 110px; }

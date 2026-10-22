@@ -19,17 +19,17 @@
     name: ['수취인명', '수취인이름', '수취자명', '수취인', '받는분', '받는분이름', '받는사람', '수령인', '수령자', '수령인명', '수하인명', '수하인', '이름', '성명'],
     product: ['상품명', '등록상품명', '구입품목', '품목명', '제품명', '노출상품명(옵션명)', '노출상품명', '상품'],
     option: ['옵션정보', '등록옵션명', '옵션명', '옵션', '옵션내용', '선택옵션'],
-    qty: ['수량', '구매수(수량)', '구매수', '주문수량', '수량(개)', '개수'],
+    qty: ['수량', '구매수(수량)', '구매수', '주문수량', '수량(개)', '개수', '주문건수'],
     phone: ['수취인연락처1', '수취인연락처', '수취인전화번호', '수취인휴대폰', '수취인휴대폰번호', '수취인휴대전화', '수취인핸드폰', '받는분전화번호', '받는분연락처', '받는분휴대폰', '받는사람연락처', '받는사람전화번호', '수령인연락처', '수령인전화번호', '수령자연락처', '수하인전화번호', '수하인연락처', '휴대폰번호', '휴대폰', '핸드폰', '휴대전화', '전화번호', '연락처', '연락처1', '전화번호1'],
     phone2: ['수취인연락처2', '수취인전화번호2', '받는분전화번호2', '연락처2', '전화번호2'],
     address: ['통합배송지', '수취인주소', '받는분주소', '수령인주소', '배송지주소', '배송주소', '배송지', '주소', '수하인주소'],
     addressBase: ['기본배송지', '기본주소'],
     addressDetail: ['상세배송지', '상세주소'],
-    memo: ['배송메세지', '배송메시지', '배송요청사항', '배송메모', '요청사항', '배송시요청사항', '배송요청메세지', '배송시요구사항', '배송요구사항', '요구사항', '배송시메모', '배송시메세지'],
+    memo: ['배송메세지', '배송메시지', '배송요청사항', '배송메모', '요청사항', '배송시요청사항', '배송요청메세지', '배송시요구사항', '배송요구사항', '요구사항', '배송시메모', '배송시메세지', '주문요청사항'],
     status: ['주문상태'],
     status2: ['주문세부상태'],
     claim: ['클레임상태', '클레임'],
-    orderItemNo: ['상품주문번호'],
+    orderItemNo: ['상품주문번호', '주문상품번호'],
     orderNo: ['주문번호'],
     optionId: ['옵션id', '옵션관리코드']
   };
@@ -150,6 +150,8 @@
     if (set['상품주문번호'] && (set['수취인연락처1'] || set['통합배송지'])) return 'smartstore';
     if (set['묶음배송번호'] || set['구매수(수량)'] || (set['수취인이름'] && set['노출상품명(옵션명)'])) return 'coupang';
     if (set['장바구니번호(결제번호)'] || set['스마일캐시적립'] || (set['수령인명'] && set['배송시요구사항'])) return 'esm';
+    if (Object.keys(set).some(function (h) { return /토스|toss/.test(h); }) ||
+        (set['주문상품번호'] && (set['받은혜택'] || set['배송속성'] || set['물류사']))) return 'toss';
     if (Object.keys(set).some(function (h) { return /11번가|11st|11pay/.test(h); }) || set['주문순번'] || /11번가|11st/.test(pre) ||
         (/발송준비중내역/.test(pre) && set['수취인'] && set['휴대폰번호'])) return 'st11';
     if (Object.keys(set).some(function (h) { return /카카오|톡딜|톡스토어|톡채널|채널상품번호/.test(h); })) return 'kakao';
@@ -163,11 +165,12 @@
     if (/스마트스토어|smartstore|네이버/.test(n)) return 'smartstore';
     if (/쿠팡|coupang|wing/.test(n)) return 'coupang';
     if (/g마켓|지마켓|gmarket|옥션|auction|esm/.test(n)) return 'esm';
+    if (/토스|toss/.test(n)) return 'toss';
     if (/11번가|11st|logistics/.test(n)) return 'st11'; // 11번가 발송 엑셀 기본 이름: ‘…_logistics.xls’
     return '';
   }
 
-  var MARKET_LABEL = { smartstore: '스마트스토어', coupang: '쿠팡', esm: 'G마켓·옥션', kakao: '카카오쇼핑', st11: '11번가', etc: '기타 쇼핑몰' };
+  var MARKET_LABEL = { smartstore: '스마트스토어', coupang: '쿠팡', esm: 'G마켓·옥션', kakao: '카카오쇼핑', st11: '11번가', toss: '토스쇼핑', etc: '기타 쇼핑몰' };
 
   var PHONE_PATTERNS = [
     [/^(050\d)(\d{4})(\d{4})$/, '$1-$2-$3'],     // 안심번호 0504-xxxx-xxxx
@@ -384,6 +387,13 @@
     return out;
   }
 
+  // 머리글 아래 안내 줄: 찬 칸이 모두 ‘수정 불가·수정 가능·필수·선택’ 같은 말뿐인 줄
+  var NOTE_CELL = /^(수정\s*(불가|가능)|입력\s*(불가|가능)|변경\s*(불가|가능)|필수|선택|필수\s*입력|선택\s*입력)$/;
+  function isNoteRow(row) {
+    var cells = (row || []).map(cellText).filter(Boolean);
+    return cells.length > 0 && cells.every(function (c) { return NOTE_CELL.test(c); });
+  }
+
   /* ---------- 참고 데이터 (단골고객 리스트 등) ---------- */
 
   /** 2차원 배열 → { headers, rows } : 앞쪽 20행 중 칸이 2개 이상 찬 첫 행을 머리글로 */
@@ -528,6 +538,7 @@
       var name = cellText(get('name'));
       var product = cellText(get('product'));
       if (!name && !product) continue; // 빈 행
+      if (isNoteRow(row)) continue; // 토스쇼핑 ‘수정 불가 / 수정 가능’ 같은 안내 줄
 
       var address = oneLine(get('address'));
       if (!address) {

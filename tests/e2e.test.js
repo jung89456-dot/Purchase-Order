@@ -579,6 +579,22 @@ test('④ 추가 데이터: 같은 이름을 두 번 적으면 당일발주에 �
   });
 });
 
+test('토스쇼핑: 주문내역 양식을 알아보고 T 로 표시, ‘수정 불가’ 안내 줄은 건너뜀', async () => {
+  // 실제 토스쇼핑 주문내역과 같은 구성 (가상 데이터): 머리글 아래 ‘수정 불가/수정 가능’ 줄이 있음
+  const H = ['주문번호', '주문상품번호', '주문상태', '발송기한', '배송속성', '받은 혜택', '물류사', '택배사', '송장번호', '상품명', '옵션명', '주문건수', '상품ID', '상품 관리 코드', '옵션 ID', '옵션 관리 코드', '구매자명', '구매자 연락처', '수령인명', '수령인 연락처', '우편번호', '배송지', '주문요청사항', '주문일시', '구매확정일', '희망배송일', '발송처리일시', '배송완료일시', '주문금액', '배송비 묶음 번호', '배송비 합계'];
+  const note = H.map((h) => (['택배사', '송장번호', '물류사'].includes(h) ? '수정 가능' : '수정 불가'));
+  const data = H.map(() => '');
+  Object.assign(data, { 0: '100000001', 1: '200000001', 2: '상품준비중', 9: '청도 한재 미나리', 10: '1kg', 11: '2', 18: '가나다', 19: '050412345678', 21: '서울특별시 중구 세종대로 110', 22: '문 앞에 놔주세요' });
+  await withPage(async (page) => {
+    await upload(page, [{ name: 'orders.xlsx', mimeType: T, buffer: mkXlsx([H, note, data]) }]);
+    await page.waitForFunction(() => window.__po.state.files.length === 1 && !window.__po.state.busy);
+    const r = await page.evaluate(() => window.__po.state.rows.map((x) => [x.market, x.source, x.name, x.item, x.qty, x.phone, x.address, x.memo, x.issues]));
+    assert.deepStrictEqual(r, [['toss', '토스쇼핑', '가나다', '청도 한재 미나리 / 1kg', 2, '0504-1234-5678', '서울특별시 중구 세종대로 110', '문 앞에 놔주세요', []]]);
+    assert.deepStrictEqual(await page.locator('#previewTable .mk').allTextContents(), ['T']);
+    assert.match(await page.textContent('#fileList'), /토스쇼핑/);
+  });
+});
+
 test('11번가: 발송준비중내역 양식을 알아보고 11 로 표시', async () => {
   // 실제 11번가 ‘…_logistics.xls’와 같은 구성 (가상 데이터): 안내 줄, 제목 줄, 그다음 머리글
   const st11 = mkXlsx([
